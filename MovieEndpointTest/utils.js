@@ -19,8 +19,85 @@ const familyNames = [
     "Owens", "Parker", "Quigley", "Roberts", "Smith", "Taylor",
     "Underwood", "Vance", "White", "Xavier", "Young", "Zimmerman"
 ];
-
-const genres = ["Action", "Comedy", "Drama", "Fantasy", "Horror", "Sci-Fi", "Thriller", "Western"];
+const genres = [
+        {
+            "id": 1,
+            "name": "Action"
+        },
+        {
+            "id": 2,
+            "name": "Adventure"
+        },
+        {
+            "id": 3,
+            "name": "Animation"
+        },
+        {
+            "id": 4,
+            "name": "Comedy"
+        },
+        {
+            "id": 5,
+            "name": "Crime"
+        },
+        {
+            "id": 6,
+            "name": "Documentary"
+        },
+        {
+            "id": 7,
+            "name": "Drama"
+        },
+        {
+            "id": 8,
+            "name": "Family"
+        },
+        {
+            "id": 9,
+            "name": "Fantasy"
+        },
+        {
+            "id": 10,
+            "name": "History"
+        },
+        {
+            "id": 11,
+            "name": "Horror"
+        },
+        {
+            "id": 12,
+            "name": "Music"
+        },
+        {
+            "id": 13,
+            "name": "Mystery"
+        },
+        {
+            "id": 14,
+            "name": "Romance"
+        },
+        {
+            "id": 15,
+            "name": "Science Fiction"
+        },
+        {
+            "id": 16,
+            "name": "TV Movie"
+        },
+        {
+            "id": 17,
+            "name": "Thriller"
+        },
+        {
+            "id": 18,
+            "name": "War"
+        },
+        {
+            "id": 19,
+            "name": "Western"
+        }
+    ];
+const genresList = genres.map(g => g.name);
 
 const localImages = [
     "https://images.bauerhosting.com/legacy/empire-images/features/59e8d795405a5c6805947751/20%20the%20truman%20show.jpg?auto=format&w=1200&q=80",
@@ -43,17 +120,23 @@ const localImages = [
     "https://images.bauerhosting.com/legacy/empire-images/features/59e8d795405a5c6805947751/16%20The%20Usual%20Suspects.jpg?auto=format&w=1200&q=80",
     "https://images.bauerhosting.com/legacy/empire-images/features/59e8d795405a5c6805947751/17%20the%20people%20vs%20larry%20flynt.jpg?auto=format&w=1200&q=80",
     "https://images.bauerhosting.com/legacy/empire-images/features/59e8d795405a5c6805947751/18%20Trainspotting.jpg?auto=format&w=1200&q=80",
-    // "Posters/01.png", "Posters/02.png", "Posters/03.png", "Posters/04.png",
-    // "Posters/05.png", "Posters/06.png", "Posters/07.png", "Posters/08.png",
-    // "Posters/09.png", "Posters/10.png", "Posters/11.png", "Posters/12.png",
-    // "Posters/13.png", "Posters/14.png", "Posters/15.png", "Posters/16.png",
-    // "Posters/17.png", "Posters/18.png", "Posters/19.png", "Posters/20.png"
 ];
 
 // --- Helpers ---
-
+const getGenresList = () => genresList;
 const getRandomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 const getRandomElement = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const getRandomSentence = (wordCount) => {
+    wordCount = wordCount || getRandomInt(12, 60);
+    const sentence = [];
+    const loremIpsumParagraph = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+    const words = loremIpsumParagraph.split(' ');
+
+    for (let i = 0; i < wordCount; i++) {
+        sentence.push(getRandomElement(words));
+    }
+    return sentence.join(' ');
+};
 
 const createSingleDataPoint = (dFirst, dLast, aFirst, aLast) => {
     const movieTitle = `movie ${String(movieCounter).padStart(3, '0')}`;
@@ -61,12 +144,20 @@ const createSingleDataPoint = (dFirst, dLast, aFirst, aLast) => {
 
     return {
         id: `uid_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id_tmdb: getRandomInt(100000, 999999),
+        adult: getRandomInt(0, 1) === 1,
+        original_language: "en",
+        overview: getRandomSentence(),
+        release_date: `${getRandomInt(1950, 2025)}-${getRandomInt(1, 12)}-${getRandomInt(1, 30)}`,
         title: movieTitle,
-        year: getRandomInt(1950, 2025),
-        genre: getRandomElement(genres),
-        image: `${getRandomElement(localImages)}`,
         director: `${dFirst} ${dLast}`,
-        mainActor: `${aFirst} ${aLast}`
+        actors: [`${aFirst} ${aLast}`, `${getRandomElement(firstNames)} ${getRandomElement(familyNames)}`, `${getRandomElement(firstNames)} ${getRandomElement(familyNames)}`],
+        vote_average: parseFloat((Math.random() * 9 + 1).toFixed(1)),
+        vote_count: getRandomInt(0, 10000),
+        image: `${getRandomElement(localImages)}`,
+        genre: getRandomElement(genresList),
+        mainActor: `${aFirst} ${aLast}`,
+        vector: Array.from({ length: 128 }, () => Math.random()) // Example vector for similarity calculations
     };
 };
 
@@ -122,5 +213,6 @@ const getDbSize = () => dbData.length;
 module.exports = {
     generateBigStack,
     getPickedPair,
-    getDbSize
+    getDbSize,
+    getGenresList
 };

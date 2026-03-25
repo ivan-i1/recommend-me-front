@@ -1,6 +1,6 @@
 // server.js
 const express = require('express');
-const { generateBigStack, getPickedPair, getDbSize } = require('./utils');
+const { generateBigStack, getPickedPair, getDbSize, getGenresList } = require('./utils');
 
 const app = express();
 const PORT = 3000;
@@ -36,6 +36,15 @@ app.get('/generate-stack', (req, res) => {
     });
 });
 
+app.get('/details/genres', (req, res) => {
+    const genres = getGenresList();
+    console.log("Returning genres list...");
+    res.json({
+        success: true,
+        data: genres
+    });
+});
+
 /**
  * GET /pair
  * Picks 2 existing items from the generated stack.
@@ -55,6 +64,48 @@ app.get('/pair', (req, res) => {
         success: true,
         data: pair
     });
+});
+
+app.post('/movies/two_options', (req, res) => {
+    console.time();
+    console.log("Received request for /movies/two_options. Picking a pair...");
+
+    const pair = getPickedPair();
+
+    if (!pair) {
+        return res.status(404).json({
+            success: false,
+            message: "Not enough data. Please call /generate-stack first.",
+            currentDbSize: getDbSize()
+        });
+    }
+    console.log(`Picked a pair from DB of size ${getDbSize()}.`);
+
+    // hacer algo con el req
+    console.log("Received POST data:", req.body);
+    let responseData = [
+        {
+            id: "uid_12345",
+            id_tmdb: 12345,
+            adult: false,
+            original_language: "en",
+            overview: "A thrilling adventure of two friends.",
+            release_date: "2023-10-01",
+            title: "The Great Adventure",
+            director: "John Doe",
+            actors: ["Jane Smith", "Bob Johnson"],
+            vote_average: 7.8,
+            vote_count: 1500,
+            image_path: "/path/to/poster.jpg",
+            vector: [0.1, 0.2, 0.3, 0.4, 0.5] // Example vector for similarity calculations
+        }
+    ];
+    //respuesta
+    res.json({
+        success: true,
+        data: pair
+    });
+    console.timeEnd();
 });
 
 /**
