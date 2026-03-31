@@ -154,7 +154,7 @@ const createSingleDataPoint = (dFirst, dLast, aFirst, aLast) => {
         actors: [`${aFirst} ${aLast}`, `${getRandomElement(firstNames)} ${getRandomElement(familyNames)}`, `${getRandomElement(firstNames)} ${getRandomElement(familyNames)}`],
         vote_average: parseFloat((Math.random() * 9 + 1).toFixed(1)),
         vote_count: getRandomInt(0, 10000),
-        image: `${getRandomElement(localImages)}`,
+        image_url: `${getRandomElement(localImages)}`,
         genre: getRandomElement(genresList),
         mainActor: `${aFirst} ${aLast}`,
         vector: Array.from({ length: 128 }, () => Math.random()) // Example vector for similarity calculations

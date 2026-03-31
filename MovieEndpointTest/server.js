@@ -49,8 +49,9 @@ app.get('/details/genres', (req, res) => {
  * GET /pair
  * Picks 2 existing items from the generated stack.
  */
-app.get('/pair', (req, res) => {
+app.get('/movies/start_movies', (req, res) => {
     const pair = getPickedPair();
+    console.log("Received request for /movies/start_movies. Picking a pair...");
 
     if (!pair) {
         return res.status(404).json({
@@ -60,10 +61,7 @@ app.get('/pair', (req, res) => {
         });
     }
     console.log(`Picked a pair from DB of size ${getDbSize()}.`);
-    res.json({
-        success: true,
-        data: pair
-    });
+    res.json(pair);
 });
 
 app.post('/movies/two_options', (req, res) => {
@@ -101,10 +99,7 @@ app.post('/movies/two_options', (req, res) => {
         }
     ];
     //respuesta
-    res.json({
-        success: true,
-        data: pair
-    });
+    res.json(pair);
     console.timeEnd();
 });
 
