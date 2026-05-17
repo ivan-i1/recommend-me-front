@@ -68,7 +68,10 @@ const CinemaButton = ({ title, onPress, type = 'primary' }: any) => {
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <View style={styles.btnInnerBorder}>
+      <View style={[
+        styles.btnInnerBorder,
+        isPrimary ? styles.btnInnerPrimary : styles.btnInnerSecondary
+      ]}>
         <Text style={[
           styles.btnText,
           isPrimary ? styles.textGold : styles.textWhite
@@ -161,13 +164,13 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
   const selectAll = () => onChange(null);
   const selectNone = () => onChange([]);
 
-  const headerText = allSelected
-    ? `${label}: All ▼`
+  const valueText = allSelected
+    ? 'All ▼'
     : noneSelected
-      ? `${label}: Any ▼`
+      ? 'Any ▼'
       : selectedValues.length === 1
-        ? `${label}: ${selectedValues[0]}`
-        : `${label}: ${selectedValues.length} selected`;
+        ? selectedValues[0]
+        : `${selectedValues.length} selected`;
 
   return (
     <View style={styles.genreTriggerWrap}>
@@ -176,7 +179,10 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
         onPress={() => setIsOpen(true)}
         activeOpacity={0.8}
       >
-        <Text style={styles.dropdownHeaderText}>{headerText}</Text>
+        <Text style={styles.dropdownHeaderText}>
+          <Text style={{ fontWeight: 'bold' }}>{label}: </Text>
+          {valueText}
+        </Text>
       </TouchableOpacity>
 
       <Modal
@@ -276,6 +282,7 @@ const CinemaYearWheel = ({ label, value, min, max, onChange }: any) => {
           snapToInterval={WHEEL_ITEM_HEIGHT}
           decelerationRate="fast"
           disableIntervalMomentum
+          nestedScrollEnabled
           onScroll={(e) => { lastYRef.current = e.nativeEvent.contentOffset.y; }}
           scrollEventThrottle={16}
           onMomentumScrollEnd={scheduleSettle}
@@ -412,7 +419,7 @@ function SelectionScreen({ navigation }: any) {
     } else {
       setIsLoading(false);
     }
-  }, []);
+  }, [pair.length]);
 
   // 3. Filter handlers just stage values — request fires on "Request New Movies"
   const handleGenresChange = (vals: string[] | null) => setSelectedGenres(vals);
@@ -433,7 +440,8 @@ function SelectionScreen({ navigation }: any) {
 
   // 4. Selection Logic (Vector Math happens here)
   const handleSelection = (chosenMovie: any) => {
-    pushToStack({ name: chosenMovie.name, id: chosenMovie.id });
+    const { selectionHandler, detailsHandler, ...movieToStore } = chosenMovie;
+    pushToStack(movieToStore);
 
     let newVector: number[] = [];
     const movieVector = chosenMovie.vector || [];
@@ -458,7 +466,8 @@ function SelectionScreen({ navigation }: any) {
   };
 
   const handleDetails = (movie: any) => {
-    navigation.navigate('Details', { movie: movie });
+    const { selectionHandler, detailsHandler, ...movieToPass } = movie;
+    navigation.navigate('Details', { movie: movieToPass });
   };
 
   if (isError) {
@@ -490,7 +499,7 @@ function SelectionScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <View style={[styles.scrollContent, { width: '100%' }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
         <View style={styles.filtersContainerTop}>
           <CinemaMultiSelectModal
             label="Genre"
@@ -552,14 +561,27 @@ function SelectionScreen({ navigation }: any) {
           title="Start Over"
           onPress={handleRequestNewMovies}
         />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 function DetailsScreen({ route, navigation }: any) {
   const { stack, clearStack } = useContext(StackContext);
+  const { clearPair } = useContext(PairContext);
+  const { clearVector } = useContext(VectorContext);
+  const { setSelectedGenres, setMinYear, setMaxYear } = useContext(FiltersContext);
   const { movie } = route.params || {};
+
+  const handleStartOver = () => {
+    clearStack();
+    clearVector();
+    setSelectedGenres(null);
+    setMinYear(MIN_YEAR.toString());
+    setMaxYear(MAX_YEAR.toString());
+    clearPair();
+    navigation.popToTop();
+  };
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
@@ -576,37 +598,43 @@ function DetailsScreen({ route, navigation }: any) {
             </Text>
 
             <View style={{ width: '90%', marginVertical: 15, backgroundColor: COLORS.cardBg, padding: 18, borderRadius: 8, borderWidth: 1, borderColor: COLORS.blue }}>
-              <Text style={{ color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
                 <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Director: </Text>
                 {movie.director || 'Unknown'}
               </Text>
-              <Text style={{ color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
                 <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Starring: </Text>
                 {movie.actor || 'Unknown'}
               </Text>
-              <Text style={{ color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
+              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
                 <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Year: </Text>
                 {movie.year || 'Unknown'}
               </Text>
-              <Text style={{ color: COLORS.textLight, fontSize: 16, marginBottom: 15 }}>
+              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 15 }}>
                 <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Genres: </Text>
                 {movie.genres && movie.genres.length ? movie.genres.join(', ') : 'Unknown'}
               </Text>
-              <Text style={{ color: COLORS.textLight, fontSize: 15, fontStyle: 'italic', lineHeight: 24 }}>
+              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 15, lineHeight: 24 }}>
                 {movie.overview || 'No plot overview available for this title.'}
               </Text>
             </View>
           </View>
         ) : (<Text style={styles.subText}>No movie details available.</Text>)}
         <View style={styles.receiptContainer}>
-          <MarqueeHeader text="YOUR CHOICES SO FAR" />
+          <MarqueeHeader text="TONIGHT'S LINEUP" />
           {stack.length === 0 ? (
             <Text style={styles.historyItem}>No choices made yet.</Text>
           ) : (
             stack.map((item, index) => (
-              <Text key={index} style={styles.historyItem}>
-                {index + 1}. {item.name || item}
-              </Text>
+              <TouchableOpacity
+                key={index}
+                onPress={() => navigation.push('Details', { movie: item })}
+                activeOpacity={0.6}
+              >
+                <Text style={[styles.historyItem, styles.lineupLink]}>
+                  {index + 1}. {item.name || item}
+                </Text>
+              </TouchableOpacity>
             ))
           )}
         </View>
@@ -619,10 +647,7 @@ function DetailsScreen({ route, navigation }: any) {
         <View style={styles.spacer} />
         <CinemaButton
           title="Start Over"
-          onPress={() => {
-            clearStack();
-            navigation.popToTop();
-          }}
+          onPress={handleStartOver}
         />
       </ScrollView>
     </SafeAreaView>
@@ -755,16 +780,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   text: {
-    fontFamily: 'Limelight',
+    fontFamily: 'Limelight-Regular',
     fontSize: 24,
-    marginBottom: 10,
     fontWeight: 'bold',
+    marginBottom: 10,
   },
   subText: {
+    fontFamily: 'Limelight-Regular',
     fontSize: 18,
+    fontWeight: 'bold',
     color: COLORS.textLight,
     marginBottom: 20,
-    fontStyle: 'italic',
     textAlign: 'center',
   },
   marqueeContainer: {
@@ -783,15 +809,15 @@ const styles = StyleSheet.create({
   marqueeBorder: {
     borderWidth: 2,
     borderColor: COLORS.gold,
-    borderStyle: 'dashed',
+    borderStyle: 'dotted',
     paddingVertical: 10,
     paddingHorizontal: 30,
     borderRadius: 4,
   },
   marqueeText: {
-    fontFamily: 'Oswald',
+    fontFamily: 'Limelight-Regular',
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: 'bold',
     color: COLORS.gold,
     textTransform: 'uppercase',
     letterSpacing: 2,
@@ -806,9 +832,15 @@ const styles = StyleSheet.create({
   spacer: { height: 15 },
   spacerLarge: { height: 40 },
   historyItem: {
+    fontFamily: 'Limelight-Regular',
     fontSize: 18,
     color: COLORS.textLight,
     marginVertical: 0,
+  },
+  lineupLink: {
+    color: COLORS.gold,
+    textDecorationLine: 'underline',
+    paddingVertical: 4,
   },
   receiptContainer: {
     backgroundColor: COLORS.cardBg,
@@ -820,8 +852,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cinemaBtn: {
-    fontFamily: 'Limelight-Regular',
     borderRadius: 8,
+    padding: 4,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -845,18 +877,23 @@ const styles = StyleSheet.create({
     borderColor: COLORS.blue,
   },
   btnInnerBorder: {
-    width: '94%',
-    height: '86%',
+    flex: 1,
+    alignSelf: 'stretch',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.3)',
+    borderStyle: 'dotted',
+    borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 4,
   },
+  btnInnerPrimary: { borderColor: COLORS.gold },
+  btnInnerSecondary: { borderColor: COLORS.blue },
   btnText: {
+    fontFamily: 'Oswald-Bold',
     fontSize: 16,
-    fontWeight: 'bold',
     letterSpacing: 1,
+    lineHeight: 18,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   textGold: { color: COLORS.gold },
   textWhite: { color: COLORS.textLight },
@@ -870,8 +907,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dropdownHeaderText: {
+    fontFamily: 'Limelight-Regular',
     color: COLORS.gold,
-    fontWeight: 'bold',
     fontSize: 16,
   },
   filtersContainerTop: {
@@ -910,9 +947,9 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   modalTitle: {
+    fontFamily: 'Limelight-Regular',
     color: COLORS.gold,
     fontSize: 20,
-    fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 12,
   },
@@ -928,9 +965,9 @@ const styles = StyleSheet.create({
     borderBottomColor: '#5B21B6',
   },
   modalRowText: {
+    fontFamily: 'Limelight-Regular',
     color: COLORS.textLight,
     fontSize: 16,
-    fontWeight: 'bold',
     marginLeft: 12,
   },
   checkbox: {
@@ -960,8 +997,8 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.borderDark,
   },
   modalAction: {
+    fontFamily: 'Limelight-Regular',
     fontSize: 16,
-    fontWeight: 'bold',
     paddingVertical: 8,
     paddingHorizontal: 14,
   },
@@ -970,6 +1007,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wheelLabel: {
+    fontFamily: 'Limelight-Regular',
     color: COLORS.textLight,
     fontSize: 12,
     fontWeight: 'bold',
@@ -1017,8 +1055,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wheelItemText: {
+    fontFamily: 'Limelight-Regular',
     color: COLORS.gold,
-    fontWeight: 'bold',
     fontSize: 16,
   },
 });
