@@ -1,0 +1,49 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/Limelight/Limelight-Regular.ttf",
+      "sha1": "be438210a409ba7d43cf76055b20d8537810e76e"
+    },
+    {
+      "path": "assets/Limelight/OFL.txt",
+      "sha1": "2a3df05949edde0212e0a7b140bf93832c8d4f0f"
+    },
+    {
+      "path": "assets/Oswald/static/Oswald-Bold.ttf",
+      "sha1": "0fe7815dc9fe639677f6ddda70ca3a88dd1a09d5"
+    },
+    {
+      "path": "assets/Oswald/static/Oswald-SemiBold.ttf",
+      "sha1": "be4f51edf0351e7a6b863375e1ef9adf7ed98887"
+    },
+    {
+      "path": "assets/Oswald/static/Oswald-Medium.ttf",
+      "sha1": "13a3fe5dfa22b7a7d527bcc911fa6514bd1abc83"
+    },
+    {
+      "path": "assets/Oswald/static/Oswald-Regular.ttf",
+      "sha1": "10599ee4b500dead0a5fa3ef70bbbeb568c16c11"
+    },
+    {
+      "path": "assets/Oswald/static/Oswald-ExtraLight.ttf",
+      "sha1": "ecf39a80b61fe7f97dd0fa1b26bd35facaed6058"
+    },
+    {
+      "path": "assets/Oswald/static/Oswald-Light.ttf",
+      "sha1": "0d9835aaf684a043f75da67c26fca21435e6323e"
+    },
+    {
+      "path": "assets/Oswald/OFL.txt",
+      "sha1": "79b551518aa8cde3635b375e06d9f00fae0148d9"
+    },
+    {
+      "path": "assets/Oswald/Oswald-VariableFont_wght.ttf",
+      "sha1": "dd15bbc22a82fa005a1700fabc7b6840db49dc3e"
+    },
+    {
+      "path": "assets/Oswald/README.txt",
+      "sha1": "4a5558e3dfaf2d637241331a0e81832601c6e19f"
+    }
+  ]
+}
