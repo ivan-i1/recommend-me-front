@@ -215,3 +215,8 @@ __marimo__/
 *.png
 *.avif
 
+# App image assets must still be tracked despite the blanket *.png rule above.
+!recommend-me-app/assets/**/*.png
+!recommend-me-app/android/app/src/main/res/**/*.png
+!recommend-me-app/ios/**/*.png
+

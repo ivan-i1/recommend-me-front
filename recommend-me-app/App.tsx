@@ -5,11 +5,12 @@
  * @format
  */
 import React, { useState, useContext, createContext, useEffect, useRef, use } from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
+import { Shadow } from 'react-native-shadow-2';
 
 const localTest = Platform.OS === 'web'
   ? ''
@@ -57,29 +58,40 @@ const FiltersContext = createContext({
 });
 
 // --- CUSTOM COMPONENTS ---
-const CinemaButton = ({ title, onPress, type = 'primary' }: any) => {
+const CinemaButton = ({ title, onPress, type = 'primary', width }: any) => {
   const isPrimary = type === 'primary';
+  const glowHex = isPrimary ? COLORS.gold : COLORS.blue;
+  const widthStyle = width ? { width } : undefined;
   return (
-    <TouchableOpacity
-      style={[
-        styles.cinemaBtn,
-        isPrimary ? styles.btnPrimary : styles.btnSecondary
-      ]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={[
-        styles.btnInnerBorder,
-        isPrimary ? styles.btnInnerPrimary : styles.btnInnerSecondary
-      ]}>
-        <Text style={[
-          styles.btnText,
-          isPrimary ? styles.textGold : styles.textWhite
-        ]}>
-          {title.toUpperCase()}
-        </Text>
-      </View>
-    </TouchableOpacity>
+    <Pressable onPress={onPress} style={widthStyle}>
+      {({ pressed }) => (
+        <Shadow
+          distance={pressed ? 18 : 10}
+          startColor={glowHex + (pressed ? 'CC' : '99')}
+          endColor={glowHex + '00'}
+          offset={[0, 0]}
+          style={widthStyle}
+        >
+          <View style={[
+            styles.cinemaBtn,
+            isPrimary ? styles.btnPrimary : styles.btnSecondary,
+            widthStyle,
+          ]}>
+            <View style={[
+              styles.btnInnerBorder,
+              isPrimary ? styles.btnInnerPrimary : styles.btnInnerSecondary
+            ]}>
+              <Text style={[
+                styles.btnText,
+                isPrimary ? styles.textGold : styles.textWhite
+              ]}>
+                {title.toUpperCase()}
+              </Text>
+            </View>
+          </View>
+        </Shadow>
+      )}
+    </Pressable>
   );
 };
 
@@ -117,21 +129,28 @@ const MarqueeHeader = ({ text }: { text: string }) => (
 );
 
 function MovieCard({ movieData }: { movieData: any }) {
+  const [posterWidth, setPosterWidth] = useState<number>(0);
   return (
     <View style={styles.movieCard}>
       <View style={{ height: 50, justifyContent: 'flex-end', alignItems: 'center', width: '100%', paddingBottom: 10 }}>
         <Text style={[styles.textGold, styles.text, { textAlign: 'center', marginBottom: 0 }]} numberOfLines={2} adjustsFontSizeToFit>{movieData.name}</Text>
       </View>
-      <PosterButton
-        imageUri={movieData.image}
-        onPress={() => {
-          // Changed to pass the entire movieData object instead of just the name
-          movieData.selectionHandler(movieData)
-        }}
-      />
+      <View
+        style={{ width: '100%' }}
+        onLayout={(e) => setPosterWidth(e.nativeEvent.layout.width)}
+      >
+        <PosterButton
+          imageUri={movieData.image}
+          onPress={() => {
+            // Changed to pass the entire movieData object instead of just the name
+            movieData.selectionHandler(movieData)
+          }}
+        />
+      </View>
       <CinemaButton
         title="Details"
         type="secondary"
+        width={posterWidth || undefined}
         onPress={() => movieData.detailsHandler(movieData)}
       />
     </View>
@@ -180,7 +199,7 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
         activeOpacity={0.8}
       >
         <Text style={styles.dropdownHeaderText}>
-          <Text style={{ fontWeight: 'bold' }}>{label}: </Text>
+          <Text style={{ fontFamily: 'Oswald-Bold' }}>{label}: </Text>
           {valueText}
         </Text>
       </TouchableOpacity>
@@ -194,20 +213,19 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{label}</Text>
-            <ScrollView style={styles.modalList}>
+            <ScrollView style={styles.modalList} contentContainerStyle={styles.chipCloud}>
               {options.map((opt: string) => {
                 const checked = isChecked(opt);
                 return (
                   <TouchableOpacity
                     key={opt}
-                    style={styles.modalRow}
+                    style={[styles.chip, checked ? styles.chipSelected : styles.chipUnselected]}
                     onPress={() => toggle(opt)}
                     activeOpacity={0.7}
                   >
-                    <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                      {checked && <Text style={styles.checkboxMark}>✓</Text>}
-                    </View>
-                    <Text style={styles.modalRowText}>{opt}</Text>
+                    <Text style={[styles.chipText, checked ? styles.chipTextSelected : styles.chipTextUnselected]}>
+                      {opt}
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
@@ -620,12 +638,10 @@ function DetailsScreen({ route, navigation }: any) {
             </View>
           </View>
         ) : (<Text style={styles.subText}>No movie details available.</Text>)}
-        <View style={styles.receiptContainer}>
-          <MarqueeHeader text="TONIGHT'S LINEUP" />
-          {stack.length === 0 ? (
-            <Text style={styles.historyItem}>No choices made yet.</Text>
-          ) : (
-            stack.map((item, index) => (
+        {stack.length > 0 && (
+          <View style={styles.receiptContainer}>
+            <MarqueeHeader text="TONIGHT'S LINEUP" />
+            {stack.map((item, index) => (
               <TouchableOpacity
                 key={index}
                 onPress={() => navigation.push('Details', { movie: item })}
@@ -635,9 +651,9 @@ function DetailsScreen({ route, navigation }: any) {
                   {index + 1}. {item.name || item}
                 </Text>
               </TouchableOpacity>
-            ))
-          )}
-        </View>
+            ))}
+          </View>
+        )}
         <View style={styles.spacerLarge} />
         <View style={styles.spacerLarge} />
         <CinemaButton
@@ -655,6 +671,7 @@ function DetailsScreen({ route, navigation }: any) {
 }
 
 function App(): React.JSX.Element {
+  const [showSplash, setShowSplash] = useState(true);
   const [stack, setStack] = useState<any[]>([]);
   const [pair, setPair] = useState<any[]>([]);
   const [vector, setVector] = useState<number[]>([]);
@@ -663,6 +680,11 @@ function App(): React.JSX.Element {
   const [selectedGenres, setSelectedGenres] = useState<string[] | null>(null);
   const [minYear, setMinYear] = useState(MIN_YEAR.toString());
   const [maxYear, setMaxYear] = useState(MAX_YEAR.toString());
+
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const pushToStack = (item: any) => {
     setStack(prevStack => [...prevStack, item]);
@@ -697,6 +719,18 @@ function App(): React.JSX.Element {
       })
       .catch(err => console.error("Could not fetch genres", err));
   }, []);
+
+  if (showSplash) {
+    return (
+      <View style={styles.splashContainer}>
+        <Image
+          source={require('./assets/icon.png')}
+          style={styles.splashIcon}
+          resizeMode="contain"
+        />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaProvider>
@@ -765,6 +799,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 10,
   },
+  splashContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splashIcon: {
+    width: 220,
+    height: 220,
+  },
   movieContainer: {
     width: '100%',
     flexDirection: 'row',
@@ -780,15 +824,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   text: {
-    fontFamily: 'Limelight-Regular',
+    fontFamily: 'Oswald-Bold',
     fontSize: 24,
-    fontWeight: 'bold',
+    lineHeight: 28,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     marginBottom: 10,
   },
   subText: {
-    fontFamily: 'Limelight-Regular',
+    fontFamily: 'Oswald-Bold',
     fontSize: 18,
-    fontWeight: 'bold',
+    lineHeight: 22,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     color: COLORS.textLight,
     marginBottom: 20,
     textAlign: 'center',
@@ -815,9 +863,11 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   marqueeText: {
-    fontFamily: 'Limelight-Regular',
+    fontFamily: 'Oswald-Bold',
     fontSize: 28,
-    fontWeight: 'bold',
+    lineHeight: 32,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     color: COLORS.gold,
     textTransform: 'uppercase',
     letterSpacing: 2,
@@ -834,6 +884,9 @@ const styles = StyleSheet.create({
   historyItem: {
     fontFamily: 'Limelight-Regular',
     fontSize: 18,
+    lineHeight: 22,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     color: COLORS.textLight,
     marginVertical: 0,
   },
@@ -856,11 +909,6 @@ const styles = StyleSheet.create({
     padding: 4,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 4, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 0,
-    elevation: 5,
   },
   btnPrimary: {
     width: 250,
@@ -910,6 +958,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Limelight-Regular',
     color: COLORS.gold,
     fontSize: 16,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   filtersContainerTop: {
     flexDirection: 'row',
@@ -950,44 +1001,48 @@ const styles = StyleSheet.create({
     fontFamily: 'Limelight-Regular',
     color: COLORS.gold,
     fontSize: 20,
+    lineHeight: 24,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     textAlign: 'center',
     marginBottom: 12,
   },
   modalList: {
     marginBottom: 12,
   },
-  modalRow: {
+  chipCloud: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: '#5B21B6',
+    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    paddingVertical: 4,
   },
-  modalRowText: {
-    fontFamily: 'Limelight-Regular',
-    color: COLORS.textLight,
-    fontSize: 16,
-    marginLeft: 12,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderWidth: 2,
+  chip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
     borderColor: COLORS.gold,
-    borderRadius: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
+    margin: 4,
+  },
+  chipUnselected: {
     backgroundColor: 'transparent',
   },
-  checkboxChecked: {
+  chipSelected: {
     backgroundColor: COLORS.gold,
   },
-  checkboxMark: {
-    color: COLORS.cardBg,
-    fontSize: 16,
-    fontWeight: 'bold',
+  chipText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 14,
     lineHeight: 18,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    letterSpacing: 0.5,
+  },
+  chipTextUnselected: {
+    color: COLORS.gold,
+  },
+  chipTextSelected: {
+    color: COLORS.background,
   },
   modalActions: {
     flexDirection: 'row',
@@ -999,6 +1054,9 @@ const styles = StyleSheet.create({
   modalAction: {
     fontFamily: 'Limelight-Regular',
     fontSize: 16,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     paddingVertical: 8,
     paddingHorizontal: 14,
   },
@@ -1007,10 +1065,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wheelLabel: {
-    fontFamily: 'Limelight-Regular',
+    fontFamily: 'Oswald-Bold',
     color: COLORS.textLight,
     fontSize: 12,
-    fontWeight: 'bold',
+    lineHeight: 14,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     marginBottom: 4,
   },
   wheelFrame: {
@@ -1057,6 +1117,9 @@ const styles = StyleSheet.create({
   wheelItemText: {
     fontFamily: 'Limelight-Regular',
     color: COLORS.gold,
+    lineHeight: WHEEL_ITEM_HEIGHT,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
     fontSize: 16,
   },
 });
