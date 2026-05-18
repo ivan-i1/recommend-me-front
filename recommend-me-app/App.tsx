@@ -33,6 +33,7 @@ const GenresListContext = createContext({
 const StackContext = createContext({
   stack: [] as any[],
   pushToStack: (item: any) => { },
+  removeFromStack: (id: any) => { },
   clearStack: () => { }
 });
 
@@ -120,13 +121,26 @@ const PosterButton = ({ imageUri, onPress }: any) => {
   );
 };
 
-const MarqueeHeader = ({ text }: { text: string }) => (
-  <View style={styles.marqueeContainer}>
-    <View style={styles.marqueeBorder}>
-      <Text style={styles.marqueeText}>{text}</Text>
+const MarqueeHeader = ({
+  text,
+  containerStyle,
+  variant = 'red',
+}: { text: string; containerStyle?: any; variant?: 'red' | 'blue' }) => {
+  const isBlue = variant === 'blue';
+  return (
+    <View style={[
+      styles.marqueeContainer,
+      isBlue && styles.marqueeContainerBlue,
+      containerStyle,
+    ]}>
+      <View style={[styles.marqueeBorder, isBlue && styles.marqueeBorderBlue]}>
+        <Text style={[styles.marqueeText, isBlue && styles.marqueeTextBlue]}>
+          {text}
+        </Text>
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 function MovieCard({ movieData }: { movieData: any }) {
   const [posterWidth, setPosterWidth] = useState<number>(0);
@@ -585,7 +599,7 @@ function SelectionScreen({ navigation }: any) {
 }
 
 function DetailsScreen({ route, navigation }: any) {
-  const { stack, clearStack } = useContext(StackContext);
+  const { stack, clearStack, removeFromStack } = useContext(StackContext);
   const { clearPair } = useContext(PairContext);
   const { clearVector } = useContext(VectorContext);
   const { setSelectedGenres, setMinYear, setMaxYear } = useContext(FiltersContext);
@@ -605,7 +619,7 @@ function DetailsScreen({ route, navigation }: any) {
       <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
         {movie ? (
           <View style={styles.ticketBooth}>
-            <MarqueeHeader text="NOW SHOWING" />
+            <MarqueeHeader text="COMING ATTRACTIONS" />
             <Image
               source={{ uri: movie.image }}
               style={{ width: 200, height: 300, borderRadius: 10, borderWidth: 2, borderColor: COLORS.gold, marginBottom: 20 }}
@@ -639,19 +653,45 @@ function DetailsScreen({ route, navigation }: any) {
           </View>
         ) : (<Text style={styles.subText}>No movie details available.</Text>)}
         {stack.length > 0 && (
-          <View style={styles.receiptContainer}>
-            <MarqueeHeader text="TONIGHT'S LINEUP" />
-            {stack.map((item, index) => (
-              <TouchableOpacity
-                key={index}
-                onPress={() => navigation.push('Details', { movie: item })}
-                activeOpacity={0.6}
-              >
-                <Text style={[styles.historyItem, styles.lineupLink]}>
-                  {index + 1}. {item.name || item}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.lineupSection}>
+            <View style={styles.lineupCabinet}>
+              <MarqueeHeader text="NOW SHOWING" variant="blue" containerStyle={styles.lineupHeaderInCabinet} />
+              <View style={styles.lineupMarquee}>
+              <View style={styles.lineupBoard}>
+                {stack.map((item, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.lineupRail,
+                      index === 0 && styles.lineupRailFirst,
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={styles.lineupRailTitleWrap}
+                      onPress={() => navigation.push('Details', { movie: item })}
+                      activeOpacity={0.5}
+                    >
+                      <Text
+                        style={styles.lineupRailTitle}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                      >
+                        {item.name || item}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => removeFromStack(item.id)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={styles.lineupRemove}
+                      activeOpacity={0.5}
+                    >
+                      <Text style={styles.lineupRemoveText}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+            </View>
           </View>
         )}
         <View style={styles.spacerLarge} />
@@ -688,6 +728,10 @@ function App(): React.JSX.Element {
 
   const pushToStack = (item: any) => {
     setStack(prevStack => [...prevStack, item]);
+  };
+
+  const removeFromStack = (id: any) => {
+    setStack(prevStack => prevStack.filter(item => item?.id !== id));
   };
 
   const clearStack = () => setStack([]);
@@ -738,7 +782,7 @@ function App(): React.JSX.Element {
         <GenresListContext.Provider value={{ genresList, setGenresList }}>
           <VectorContext.Provider value={{ vector, setVector, clearVector }}>
             <FiltersContext.Provider value={{ selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear }}>
-            <StackContext.Provider value={{ stack, pushToStack, clearStack }}>
+            <StackContext.Provider value={{ stack, pushToStack, removeFromStack, clearStack }}>
               <PairContext.Provider value={{ pair, setPair, clearPair }}>
                 <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
                 <NavigationContainer theme={MyTheme}>
@@ -750,7 +794,7 @@ function App(): React.JSX.Element {
                       headerTitleStyle: { fontWeight: 'bold', fontSize: 20 },
                       headerTitleAlign: 'center',
                     }}>
-                    <Stack.Screen name="Pick a movie" component={SelectionScreen} options={{ title: 'RECOMMEND ME!' }} />
+                    <Stack.Screen name="Pick a movie" component={SelectionScreen} options={{ title: 'BINGEPICK' }} />
                     <Stack.Screen name="Details" component={DetailsScreen} options={{ title: 'MOVIE DETAILS' }} />
                   </Stack.Navigator>
                 </NavigationContainer>
@@ -774,6 +818,10 @@ const COLORS = {
   blue: '#0EA5E9',       // Action blue
   darkBlue: '#0A192F',   // Deep blue
   borderDark: '#5B21B6', // Dark purple border
+  marqueeBoard: '#F4EFE2',  // Off-white marquee letterboard
+  marqueeRail: '#B8B0A0',   // Grey horizontal letter rails
+  marqueeFrame: '#1A1A1A',  // Dark marquee frame
+  marqueeInk: '#0B0B0B',    // Black marquee letters
 };
 
 const MyTheme = {
@@ -875,6 +923,17 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 2, height: 2 },
     textShadowRadius: 1,
   },
+  marqueeContainerBlue: {
+    backgroundColor: COLORS.darkBlue,
+    borderColor: COLORS.blue,
+    shadowColor: COLORS.blue,
+  },
+  marqueeBorderBlue: {
+    borderColor: COLORS.blue,
+  },
+  marqueeTextBlue: {
+    color: COLORS.textLight,
+  },
   ticketBooth: {
     alignItems: 'center',
     width: '100%',
@@ -890,19 +949,78 @@ const styles = StyleSheet.create({
     color: COLORS.textLight,
     marginVertical: 0,
   },
-  lineupLink: {
-    color: COLORS.gold,
-    textDecorationLine: 'underline',
+  lineupSection: {
+    width: '100%',
+    alignItems: 'stretch',
+  },
+  lineupCabinet: {
+    width: '100%',
+    borderWidth: 2,
+    borderColor: COLORS.gold,
+    borderStyle: 'dotted',
+    borderRadius: 10,
+    paddingTop: 14,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    alignItems: 'center',
+  },
+  lineupHeaderInCabinet: {
+    marginBottom: 12,
+  },
+  lineupMarquee: {
+    width: '100%',
+    backgroundColor: COLORS.marqueeFrame,
+    padding: 6,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: COLORS.marqueeFrame,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  lineupBoard: {
+    backgroundColor: COLORS.marqueeBoard,
+    paddingHorizontal: 14,
     paddingVertical: 4,
   },
-  receiptContainer: {
-    backgroundColor: COLORS.cardBg,
-    padding: 20,
-    width: '100%',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.primaryRed,
+  lineupRail: {
+    flexDirection: 'row',
     alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.marqueeRail,
+    paddingVertical: 8,
+  },
+  lineupRailFirst: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.marqueeRail,
+  },
+  lineupRailTitleWrap: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  lineupRailTitle: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 22,
+    lineHeight: 26,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    color: COLORS.marqueeInk,
+    textTransform: 'uppercase',
+    letterSpacing: 2,
+  },
+  lineupRemove: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  lineupRemoveText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 24,
+    lineHeight: 28,
+    color: COLORS.marqueeInk,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   cinemaBtn: {
     borderRadius: 8,
@@ -942,6 +1060,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     includeFontPadding: false,
     textAlignVertical: 'center',
+    textAlign: 'center',
   },
   textGold: { color: COLORS.gold },
   textWhite: { color: COLORS.textLight },
