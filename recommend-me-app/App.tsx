@@ -11,6 +11,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
 import { Shadow } from 'react-native-shadow-2';
+import { useTranslation } from 'react-i18next';
+import i18n, { detectLanguage, detectRegion } from './src/i18n';
 
 const localTest = Platform.OS === 'web'
   ? ''
@@ -56,6 +58,12 @@ const FiltersContext = createContext({
   setMinYear: (val: string) => { },
   maxYear: '',
   setMaxYear: (val: string) => { },
+});
+
+const LocaleContext = createContext({
+  language: 'en',
+  setLanguage: (_lng: string) => { },
+  region: '',
 });
 
 // --- CUSTOM COMPONENTS ---
@@ -142,7 +150,53 @@ const MarqueeHeader = ({
   );
 };
 
+const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Español' },
+];
+
+function LanguageSwitcher() {
+  const { language, setLanguage } = useContext(LocaleContext);
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <>
+      <TouchableOpacity
+        onPress={() => setIsOpen(true)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        style={styles.langTrigger}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.langTriggerText}>🌐 {language.toUpperCase()}</Text>
+      </TouchableOpacity>
+      <Modal
+        visible={isOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsOpen(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setIsOpen(false)}>
+          <View style={styles.langCard}>
+            {LANGUAGE_OPTIONS.map(({ code, label }) => (
+              <TouchableOpacity
+                key={code}
+                style={styles.langRow}
+                onPress={() => { setLanguage(code); setIsOpen(false); }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.langRowText, language === code && styles.langRowTextActive]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
 function MovieCard({ movieData }: { movieData: any }) {
+  const { t } = useTranslation();
   const [posterWidth, setPosterWidth] = useState<number>(0);
   return (
     <View style={styles.movieCard}>
@@ -162,7 +216,7 @@ function MovieCard({ movieData }: { movieData: any }) {
         />
       </View>
       <CinemaButton
-        title="Details"
+        title={t('details')}
         type="secondary"
         width={posterWidth || undefined}
         onPress={() => movieData.detailsHandler(movieData)}
@@ -172,6 +226,7 @@ function MovieCard({ movieData }: { movieData: any }) {
 }
 
 const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: any) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   const allSelected = selectedValues === null;
@@ -198,12 +253,12 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
   const selectNone = () => onChange([]);
 
   const valueText = allSelected
-    ? 'All ▼'
+    ? `${t('filter_all')} ▼`
     : noneSelected
-      ? 'Any ▼'
+      ? `${t('filter_any')} ▼`
       : selectedValues.length === 1
         ? selectedValues[0]
-        : `${selectedValues.length} selected`;
+        : t('filter_selected', { count: selectedValues.length });
 
   return (
     <View style={styles.genreTriggerWrap}>
@@ -246,13 +301,13 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
             </ScrollView>
             <View style={styles.modalActions}>
               <TouchableOpacity onPress={selectAll}>
-                <Text style={[styles.modalAction, { color: COLORS.primaryRed }]}>Select All</Text>
+                <Text style={[styles.modalAction, { color: COLORS.primaryRed }]}>{t('filter_select_all')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={selectNone}>
-                <Text style={[styles.modalAction, { color: COLORS.primaryRed }]}>Deselect All</Text>
+                <Text style={[styles.modalAction, { color: COLORS.primaryRed }]}>{t('filter_deselect_all')}</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setIsOpen(false)}>
-                <Text style={[styles.modalAction, { color: COLORS.gold }]}>Done</Text>
+                <Text style={[styles.modalAction, { color: COLORS.gold }]}>{t('filter_done')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -345,9 +400,12 @@ function SelectionScreen({ navigation }: any) {
   const { genresList } = useContext(GenresListContext);
   const { genres } = useContext(GenresContext);
   const { selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear } = useContext(FiltersContext);
+  const { t } = useTranslation();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
+  const [isEmpty, setIsEmpty] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
 
   const requestMoviePair = (
     currentGenres = selectedGenres,
@@ -389,6 +447,7 @@ function SelectionScreen({ navigation }: any) {
       url += '?' + params.join('&');
     }
     setIsError(false);
+    setIsEmpty(false);
     setIsLoading(true);
     fetch(url, {
       method: 'GET',
@@ -398,6 +457,7 @@ function SelectionScreen({ navigation }: any) {
       .then(json => {
         console.log('Got pair:', json)
         setPair(json);
+        setIsEmpty(!Array.isArray(json) || json.length < 2);
         setIsLoading(false);
       })
       .catch(error => {
@@ -424,8 +484,10 @@ function SelectionScreen({ navigation }: any) {
       adult: 0,
       ids: currentIds.filter(Boolean)
     };
+    console.log("two_options payload:", JSON.stringify(body));
 
     setIsError(false);
+    setIsEmpty(false);
     setIsLoading(true);
 
     fetch(url, {
@@ -436,6 +498,7 @@ function SelectionScreen({ navigation }: any) {
       .then(response => response.json())
       .then(json => {
         setPair(json);
+        setIsEmpty(!Array.isArray(json) || json.length < 2);
         setIsLoading(false);
       })
       .catch(error => {
@@ -446,12 +509,13 @@ function SelectionScreen({ navigation }: any) {
   };
 
   useEffect(() => {
-    if (pair.length === 0) {
+    // Guard on isEmpty so an empty API result ([]) doesn't retrigger a fetch loop.
+    if (pair.length === 0 && !isEmpty) {
       requestMoviePair();
     } else {
       setIsLoading(false);
     }
-  }, [pair.length]);
+  }, [pair.length, isEmpty]);
 
   // 3. Filter handlers just stage values — request fires on "Request New Movies"
   const handleGenresChange = (vals: string[] | null) => setSelectedGenres(vals);
@@ -468,6 +532,26 @@ function SelectionScreen({ navigation }: any) {
     clearStack();
     clearVector();
     requestMoviePair(selectedGenres, minYear, maxYear, true, []);
+  };
+
+  // No-results recovery actions.
+  // NOTE: per spec, "Reset Filters" should clear only the extra director/actor/
+  // language/country filters (keeping genre + years). Those filters are Story 3
+  // (backend-blocked, not built yet), so today this resets the only filters that
+  // exist — genre + year range. Narrow this once Story 3 lands.
+  const handleResetFilters = () => {
+    const defMin = MIN_YEAR.toString();
+    const defMax = MAX_YEAR.toString();
+    setSelectedGenres(null);
+    setMinYear(defMin);
+    setMaxYear(defMax);
+    clearStack();
+    clearVector();
+    requestMoviePair(null, defMin, defMax, true, []);
+  };
+
+  const handleAdjustFilters = () => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   // 4. Selection Logic (Vector Math happens here)
@@ -506,11 +590,11 @@ function SelectionScreen({ navigation }: any) {
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
         <View style={styles.container}>
-          <MarqueeHeader text="PROJECTOR JAMMED" />
-          <Text style={styles.subText}>Lost connection to the movie server.</Text>
+          <MarqueeHeader text={t('error_title')} />
+          <Text style={styles.subText}>{t('error_subtitle')}</Text>
           <View style={styles.spacerLarge} />
           <CinemaButton
-            title="Retry Connection"
+            title={t('retry_connection')}
             onPress={() => requestMoviePair(selectedGenres, minYear, maxYear, vector.length === 0, vector)}
           />
         </View>
@@ -518,24 +602,26 @@ function SelectionScreen({ navigation }: any) {
     );
   }
 
-  if (isLoading || (pair?.length < 2)) {
+  if (isLoading) {
     return (
       <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
         <View style={styles.container}>
-          <MarqueeHeader text="LOADING REELS..." />
-          <Text style={styles.subText}>Splicing the film...</Text>
+          <MarqueeHeader text={t('loading_title')} />
+          <Text style={styles.subText}>{t('loading_subtitle')}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const showEmpty = isEmpty || (pair?.length ?? 0) < 2;
+
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
         <View style={styles.filtersContainerTop}>
           <CinemaMultiSelectModal
-            label="Genre"
-            options={genresList.length > 0 ? genresList : ['Loading...']}
+            label={t('filter_genre')}
+            options={genresList.length > 0 ? genresList : [t('loading_short')]}
             selectedValues={selectedGenres}
             onChange={handleGenresChange}
           />
@@ -543,14 +629,14 @@ function SelectionScreen({ navigation }: any) {
 
         <View style={styles.filtersContainerBottom}>
           <CinemaYearWheel
-            label="Min Year"
+            label={t('filter_min_year')}
             value={minYear}
             min={1950}
             max={MAX_YEAR}
             onChange={handleMinYearChange}
           />
           <CinemaYearWheel
-            label="Max Year"
+            label={t('filter_max_year')}
             value={maxYear}
             min={1950}
             max={MAX_YEAR}
@@ -558,11 +644,22 @@ function SelectionScreen({ navigation }: any) {
           />
         </View>
 
-        <Text style={styles.subText}>Select the best movie</Text>
+        {showEmpty ? (
+          <View style={styles.emptyState}>
+            <MarqueeHeader text={t('empty_title')} variant="blue" />
+            <Text style={styles.subText}>{t('empty_subtitle')}</Text>
+            <View style={styles.spacer} />
+            <CinemaButton title={t('reset_filters')} onPress={handleResetFilters} />
+            <View style={styles.spacer} />
+            <CinemaButton title={t('adjust_filters')} type="secondary" onPress={handleAdjustFilters} />
+          </View>
+        ) : (
+        <>
+        <Text style={styles.subText}>{t('select_best_movie')}</Text>
 
         <View style={styles.movieContainer}>
           <MovieCard movieData={{
-            name: pair[0]?.title || "Option A",
+            name: pair[0]?.title || t('option_a'),
             image: pair[0]?.image_url,
             actor: pair[0]?.actors ? String(pair[0].actors).replace(/[\[\]']/g, '') : "Unknown",
             director: pair[0]?.director || "Unknown",
@@ -571,11 +668,12 @@ function SelectionScreen({ navigation }: any) {
             genres: Array.isArray(pair[0]?.genres) ? pair[0].genres.map((g: any) => g.name).filter(Boolean) : [],
             vector: pair[0]?.vector,
             id: pair[0]?.id,
+            score: pair[0]?.vote_average,
             selectionHandler: handleSelection,
             detailsHandler: handleDetails
           }} />
           <MovieCard movieData={{
-            name: pair[1]?.title || "Option B",
+            name: pair[1]?.title || t('option_b'),
             image: pair[1]?.image_url,
             actor: pair[1]?.actors ? String(pair[1].actors).replace(/[\[\]']/g, '') : "Unknown",
             director: pair[1]?.director || "Unknown",
@@ -584,13 +682,16 @@ function SelectionScreen({ navigation }: any) {
             genres: Array.isArray(pair[1]?.genres) ? pair[1].genres.map((g: any) => g.name).filter(Boolean) : [],
             vector: pair[1]?.vector,
             id: pair[1]?.id,
+            score: pair[1]?.vote_average,
             selectionHandler: handleSelection,
             detailsHandler: handleDetails
           }} />
         </View>
+        </>
+        )}
         <View style={styles.spacer} />
         <CinemaButton
-          title="Start Over"
+          title={t('start_over')}
           onPress={handleRequestNewMovies}
         />
       </ScrollView>
@@ -603,6 +704,7 @@ function DetailsScreen({ route, navigation }: any) {
   const { clearPair } = useContext(PairContext);
   const { clearVector } = useContext(VectorContext);
   const { setSelectedGenres, setMinYear, setMaxYear } = useContext(FiltersContext);
+  const { t } = useTranslation();
   const { movie } = route.params || {};
 
   const handleStartOver = () => {
@@ -619,43 +721,54 @@ function DetailsScreen({ route, navigation }: any) {
       <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
         {movie ? (
           <View style={styles.ticketBooth}>
-            <MarqueeHeader text="COMING ATTRACTIONS" />
-            <Image
-              source={{ uri: movie.image }}
-              style={{ width: 200, height: 300, borderRadius: 10, borderWidth: 2, borderColor: COLORS.gold, marginBottom: 20 }}
-              resizeMode="cover"
-            />
+            <MarqueeHeader text={t('coming_attractions')} />
+            <View style={styles.posterWrap}>
+              <Image
+                source={{ uri: movie.image }}
+                style={{ width: 200, height: 300, borderRadius: 10, borderWidth: 2, borderColor: COLORS.gold }}
+                resizeMode="cover"
+              />
+              {(() => {
+                const n = Number(movie.score);
+                if (!Number.isFinite(n) || n <= 0) return null;
+                return (
+                  <View style={styles.ratingBadge}>
+                    <Text style={styles.ratingText}>★ {n.toFixed(1)}</Text>
+                  </View>
+                );
+              })()}
+            </View>
             <Text style={[styles.text, { fontSize: 30, color: COLORS.gold, textAlign: 'center', marginHorizontal: 20 }]}>
               {movie.name}
             </Text>
 
             <View style={{ width: '90%', marginVertical: 15, backgroundColor: COLORS.cardBg, padding: 18, borderRadius: 8, borderWidth: 1, borderColor: COLORS.blue }}>
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
-                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Director: </Text>
-                {movie.director || 'Unknown'}
+                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_director')}</Text>
+                {movie.director || t('unknown')}
               </Text>
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
-                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Starring: </Text>
-                {movie.actor || 'Unknown'}
+                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_starring')}</Text>
+                {movie.actor || t('unknown')}
               </Text>
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
-                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Year: </Text>
-                {movie.year || 'Unknown'}
+                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_year')}</Text>
+                {movie.year || t('unknown')}
               </Text>
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 15 }}>
-                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>Genres: </Text>
-                {movie.genres && movie.genres.length ? movie.genres.join(', ') : 'Unknown'}
+                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_genres')}</Text>
+                {movie.genres && movie.genres.length ? movie.genres.join(', ') : t('unknown')}
               </Text>
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 15, lineHeight: 24 }}>
-                {movie.overview || 'No plot overview available for this title.'}
+                {movie.overview || t('no_overview')}
               </Text>
             </View>
           </View>
-        ) : (<Text style={styles.subText}>No movie details available.</Text>)}
+        ) : (<Text style={styles.subText}>{t('no_details')}</Text>)}
         {stack.length > 0 && (
           <View style={styles.lineupSection}>
             <View style={styles.lineupCabinet}>
-              <MarqueeHeader text="NOW SHOWING" variant="blue" containerStyle={styles.lineupHeaderInCabinet} />
+              <MarqueeHeader text={t('now_showing')} variant="blue" containerStyle={styles.lineupHeaderInCabinet} />
               <View style={styles.lineupMarquee}>
               <View style={styles.lineupBoard}>
                 {stack.map((item, index) => (
@@ -697,12 +810,12 @@ function DetailsScreen({ route, navigation }: any) {
         <View style={styles.spacerLarge} />
         <View style={styles.spacerLarge} />
         <CinemaButton
-          title="Back to Selection"
+          title={t('back_to_selection')}
           onPress={() => navigation.navigate('Pick a movie')}
         />
         <View style={styles.spacer} />
         <CinemaButton
-          title="Start Over"
+          title={t('start_over')}
           onPress={handleStartOver}
         />
       </ScrollView>
@@ -720,6 +833,16 @@ function App(): React.JSX.Element {
   const [selectedGenres, setSelectedGenres] = useState<string[] | null>(null);
   const [minYear, setMinYear] = useState(MIN_YEAR.toString());
   const [maxYear, setMaxYear] = useState(MAX_YEAR.toString());
+
+  // Re-detected each launch (no persistence). `region` is reserved for the
+  // streaming-providers row once the backend exposes provider data.
+  const { t } = useTranslation();
+  const [language, setLanguageState] = useState<string>(detectLanguage());
+  const region = detectRegion();
+  const setLanguage = (lng: string) => {
+    i18n.changeLanguage(lng);
+    setLanguageState(lng);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2000);
@@ -778,6 +901,7 @@ function App(): React.JSX.Element {
 
   return (
     <SafeAreaProvider>
+      <LocaleContext.Provider value={{ language, setLanguage, region }}>
       <GenresContext.Provider value={{ genres, setGenres }}>
         <GenresListContext.Provider value={{ genresList, setGenresList }}>
           <VectorContext.Provider value={{ vector, setVector, clearVector }}>
@@ -793,9 +917,10 @@ function App(): React.JSX.Element {
                       headerTintColor: COLORS.gold,
                       headerTitleStyle: { fontWeight: 'bold', fontSize: 20 },
                       headerTitleAlign: 'center',
+                      headerRight: () => <LanguageSwitcher />,
                     }}>
-                    <Stack.Screen name="Pick a movie" component={SelectionScreen} options={{ title: 'BINGEPICK' }} />
-                    <Stack.Screen name="Details" component={DetailsScreen} options={{ title: 'MOVIE DETAILS' }} />
+                    <Stack.Screen name="Pick a movie" component={SelectionScreen} options={{ title: t('app_title') }} />
+                    <Stack.Screen name="Details" component={DetailsScreen} options={{ title: t('details_title') }} />
                   </Stack.Navigator>
                 </NavigationContainer>
               </PairContext.Provider>
@@ -804,6 +929,7 @@ function App(): React.JSX.Element {
           </VectorContext.Provider>
         </GenresListContext.Provider>
       </GenresContext.Provider>
+      </LocaleContext.Provider>
     </SafeAreaProvider>
   );
 }
@@ -856,6 +982,67 @@ const styles = StyleSheet.create({
   splashIcon: {
     width: 220,
     height: 220,
+  },
+  langTrigger: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  langTriggerText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 14,
+    color: COLORS.gold,
+    letterSpacing: 1,
+  },
+  langCard: {
+    position: 'absolute',
+    top: 56,
+    right: 8,
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+    paddingVertical: 6,
+    minWidth: 140,
+  },
+  langRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  langRowText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 16,
+    color: COLORS.textLight,
+  },
+  langRowTextActive: {
+    color: COLORS.gold,
+  },
+  emptyState: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 30,
+  },
+  posterWrap: {
+    position: 'relative',
+    marginBottom: 20,
+  },
+  ratingBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: COLORS.cardBg + 'E6',
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  ratingText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 15,
+    color: COLORS.gold,
+    letterSpacing: 0.5,
   },
   movieContainer: {
     width: '100%',
@@ -1195,9 +1382,9 @@ const styles = StyleSheet.create({
   wheelFrame: {
     width: '100%',
     height: WHEEL_ITEM_HEIGHT * WHEEL_VISIBLE_COUNT,
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1,
-    borderColor: COLORS.gold,
+    backgroundColor: COLORS.marqueeBoard,
+    borderWidth: 2,
+    borderColor: COLORS.marqueeFrame,
     borderRadius: 4,
     overflow: 'hidden',
     position: 'relative',
@@ -1209,7 +1396,7 @@ const styles = StyleSheet.create({
     width: '100%',
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: COLORS.gold,
+    borderColor: COLORS.marqueeRail,
     zIndex: 2,
   },
   wheelDimTop: {
@@ -1217,7 +1404,7 @@ const styles = StyleSheet.create({
     top: 0,
     height: WHEEL_ITEM_HEIGHT * WHEEL_PAD_COUNT,
     width: '100%',
-    backgroundColor: 'rgba(31, 11, 59, 0.55)',
+    backgroundColor: 'rgba(244, 239, 226, 0.65)',
     zIndex: 1,
   },
   wheelDimBottom: {
@@ -1225,7 +1412,7 @@ const styles = StyleSheet.create({
     top: WHEEL_ITEM_HEIGHT * (WHEEL_PAD_COUNT + 1),
     height: WHEEL_ITEM_HEIGHT * WHEEL_PAD_COUNT,
     width: '100%',
-    backgroundColor: 'rgba(31, 11, 59, 0.55)',
+    backgroundColor: 'rgba(244, 239, 226, 0.65)',
     zIndex: 1,
   },
   wheelItem: {
@@ -1234,12 +1421,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   wheelItemText: {
-    fontFamily: 'Limelight-Regular',
-    color: COLORS.gold,
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.marqueeInk,
     lineHeight: WHEEL_ITEM_HEIGHT,
     includeFontPadding: false,
     textAlignVertical: 'center',
-    fontSize: 16,
+    fontSize: 18,
+    letterSpacing: 1.5,
   },
 });
 

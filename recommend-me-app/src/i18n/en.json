@@ -1,0 +1,46 @@
+{
+  "app_title": "BINGEPICK",
+  "details_title": "MOVIE DETAILS",
+
+  "select_best_movie": "Select the best movie",
+  "start_over": "Start Over",
+  "option_a": "Option A",
+  "option_b": "Option B",
+  "details": "Details",
+
+  "error_title": "PROJECTOR JAMMED",
+  "error_subtitle": "Lost connection to the movie server.",
+  "retry_connection": "Retry Connection",
+  "loading_title": "LOADING REELS...",
+  "loading_subtitle": "Splicing the film...",
+
+  "filter_genre": "Genre",
+  "filter_min_year": "Min Year",
+  "filter_max_year": "Max Year",
+  "filter_all": "All",
+  "filter_any": "Any",
+  "filter_selected": "{{count}} selected",
+  "filter_select_all": "Select All",
+  "filter_deselect_all": "Deselect All",
+  "filter_done": "Done",
+  "loading_short": "Loading...",
+
+  "empty_title": "NO FILMS ON THIS REEL",
+  "empty_subtitle": "Your filters are too strict — try loosening them.",
+  "reset_filters": "Reset Filters",
+  "adjust_filters": "Adjust Filters",
+
+
+  "coming_attractions": "COMING ATTRACTIONS",
+  "now_showing": "NOW SHOWING",
+  "label_director": "Director: ",
+  "label_starring": "Starring: ",
+  "label_year": "Year: ",
+  "label_genres": "Genres: ",
+  "unknown": "Unknown",
+  "no_overview": "No plot overview available for this title.",
+  "no_details": "No movie details available.",
+  "back_to_selection": "Back to Selection",
+
+  "language_name": "English"
+}

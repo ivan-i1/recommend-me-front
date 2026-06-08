@@ -1,0 +1,46 @@
+{
+  "app_title": "BINGEPICK",
+  "details_title": "DETALLES",
+
+  "select_best_movie": "Elige la mejor película",
+  "start_over": "Empezar de nuevo",
+  "option_a": "Opción A",
+  "option_b": "Opción B",
+  "details": "Detalles",
+
+  "error_title": "PROYECTOR ATASCADO",
+  "error_subtitle": "Se perdió la conexión con el servidor de películas.",
+  "retry_connection": "Reintentar conexión",
+  "loading_title": "CARGANDO ROLLOS...",
+  "loading_subtitle": "Empalmando la película...",
+
+  "filter_genre": "Género",
+  "filter_min_year": "Año mín.",
+  "filter_max_year": "Año máx.",
+  "filter_all": "Todos",
+  "filter_any": "Ninguno",
+  "filter_selected": "{{count}} seleccionados",
+  "filter_select_all": "Seleccionar todo",
+  "filter_deselect_all": "Quitar todo",
+  "filter_done": "Listo",
+  "loading_short": "Cargando...",
+
+  "empty_title": "SIN PELÍCULAS EN ESTE ROLLO",
+  "empty_subtitle": "Tus filtros son demasiado estrictos — intenta aflojarlos.",
+  "reset_filters": "Restablecer filtros",
+  "adjust_filters": "Ajustar filtros",
+
+
+  "coming_attractions": "PRÓXIMAMENTE",
+  "now_showing": "EN CARTELERA",
+  "label_director": "Director: ",
+  "label_starring": "Reparto: ",
+  "label_year": "Año: ",
+  "label_genres": "Géneros: ",
+  "unknown": "Desconocido",
+  "no_overview": "No hay sinopsis disponible para este título.",
+  "no_details": "No hay detalles de la película disponibles.",
+  "back_to_selection": "Volver a la selección",
+
+  "language_name": "Español"
+}
