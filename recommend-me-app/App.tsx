@@ -733,7 +733,8 @@ function DetailsScreen({ route, navigation }: any) {
                 if (!Number.isFinite(n) || n <= 0) return null;
                 return (
                   <View style={styles.ratingBadge}>
-                    <Text style={styles.ratingText}>★ {n.toFixed(1)}</Text>
+                    <Text style={styles.ratingStar}>★</Text>
+                    <Text style={styles.ratingText}>{n.toFixed(1)}</Text>
                   </View>
                 );
               })()}
@@ -1037,12 +1038,23 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  ratingStar: {
+    fontSize: 14,
+    color: COLORS.gold,
+    marginRight: 3,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   ratingText: {
     fontFamily: 'Oswald-Bold',
     fontSize: 15,
     color: COLORS.gold,
     letterSpacing: 0.5,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   movieContainer: {
     width: '100%',
