@@ -6,7 +6,7 @@
  */
 import React, { useState, useContext, createContext, useEffect, useRef, use } from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable, Linking, TextInput } from 'react-native';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
@@ -333,6 +333,25 @@ function FilterTrigger() {
   );
 }
 
+// Nav-bar trigger that jumps to the Recommendations screen, mirroring
+// FilterTrigger / LanguageSwitcher's gold-on-red glyph styling. Lives where the
+// FilterTrigger used to (headerRight), now that filters moved to headerLeft.
+function RecommendationsTrigger() {
+  const navigation = useNavigation<any>();
+  const { t } = useTranslation();
+  return (
+    <TouchableOpacity
+      onPress={() => navigation.navigate('Recommendations')}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={styles.langTrigger}
+      activeOpacity={0.7}
+      accessibilityLabel={t('see_recommendations')}
+    >
+      <Text style={styles.langTriggerText}>🍿</Text>
+    </TouchableOpacity>
+  );
+}
+
 function MovieCard({ movieData }: { movieData: any }) {
   const { t } = useTranslation();
   const [posterWidth, setPosterWidth] = useState<number>(0);
@@ -622,13 +641,27 @@ const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam }: 
 const FilterMenu = ({ visible, onClose, onApply }: any) => {
   const { t } = useTranslation();
   const { providers, countries, languages } = useContext(FilterOptionsContext);
+  const { genresList } = useContext(GenresListContext);
   const {
+    selectedGenres, setSelectedGenres,
+    minYear, setMinYear, maxYear, setMaxYear,
     selectedProviders, setSelectedProviders,
     selectedLanguages, setSelectedLanguages,
     selectedCountry, setSelectedCountry,
     selectedActors, setSelectedActors,
     selectedDirectors, setSelectedDirectors,
   } = useContext(FiltersContext);
+
+  // Clamp so min ≤ max (mirrors the old SelectionScreen handlers): bumping the
+  // min above the max drags the max up with it, and vice versa.
+  const handleMinYearChange = (val: string) => {
+    setMinYear(val);
+    if (Number(val) > Number(maxYear)) setMaxYear(val);
+  };
+  const handleMaxYearChange = (val: string) => {
+    setMaxYear(val);
+    if (Number(val) < Number(minYear)) setMinYear(val);
+  };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -643,6 +676,30 @@ const FilterMenu = ({ visible, onClose, onApply }: any) => {
           </View>
 
           <ScrollView style={styles.panelBody} contentContainerStyle={styles.panelBodyContent}>
+            <View style={styles.panelSection}>
+              <CinemaMultiSelectModal
+                label={t('filter_genre')}
+                options={genresList.length > 0 ? genresList : [t('loading_short')]}
+                selectedValues={selectedGenres}
+                onChange={setSelectedGenres}
+              />
+            </View>
+            <View style={styles.filtersContainerBottom}>
+              <CinemaYearWheel
+                label={t('filter_min_year')}
+                value={minYear}
+                min={1950}
+                max={MAX_YEAR}
+                onChange={handleMinYearChange}
+              />
+              <CinemaYearWheel
+                label={t('filter_max_year')}
+                value={maxYear}
+                min={1950}
+                max={MAX_YEAR}
+                onChange={handleMaxYearChange}
+              />
+            </View>
             <View style={styles.panelSection}>
               <CinemaMultiSelectModal
                 label={t('filter_providers')}
@@ -776,7 +833,6 @@ function SelectionScreen({ navigation }: any) {
   const { stack, pushToStack, clearStack } = useContext(StackContext);
   const { pair, setPair } = useContext(PairContext);
   const { vector, setVector, clearVector } = useContext(VectorContext);
-  const { genresList } = useContext(GenresListContext);
   const { genres } = useContext(GenresContext);
   const {
     selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear,
@@ -950,16 +1006,9 @@ function SelectionScreen({ navigation }: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingResetRequest]);
 
-  // 3. Filter handlers just stage values — request fires on "Request New Movies"
-  const handleGenresChange = (vals: string[] | null) => setSelectedGenres(vals);
-  const handleMinYearChange = (val: string) => {
-    setMinYear(val);
-    if (Number(val) > Number(maxYear)) setMaxYear(val);
-  };
-  const handleMaxYearChange = (val: string) => {
-    setMaxYear(val);
-    if (Number(val) < Number(minYear)) setMinYear(val);
-  };
+  // 3. Filter handlers just stage values — request fires on "Request New Movies".
+  // Genre + min/max year are now edited inside FilterMenu (which owns their
+  // change/clamp handlers), so SelectionScreen no longer needs local ones here.
 
   const handleRequestNewMovies = () => {
     clearStack();
@@ -1083,32 +1132,6 @@ function SelectionScreen({ navigation }: any) {
           />
         </View>
 
-        <View style={styles.filtersContainerTop}>
-          <CinemaMultiSelectModal
-            label={t('filter_genre')}
-            options={genresList.length > 0 ? genresList : [t('loading_short')]}
-            selectedValues={selectedGenres}
-            onChange={handleGenresChange}
-          />
-        </View>
-
-        <View style={styles.filtersContainerBottom}>
-          <CinemaYearWheel
-            label={t('filter_min_year')}
-            value={minYear}
-            min={1950}
-            max={MAX_YEAR}
-            onChange={handleMinYearChange}
-          />
-          <CinemaYearWheel
-            label={t('filter_max_year')}
-            value={maxYear}
-            min={1950}
-            max={MAX_YEAR}
-            onChange={handleMaxYearChange}
-          />
-        </View>
-
         <FilterMenu visible={isPanelOpen} onClose={closePanel} onApply={handleApplyFilters} />
 
         {showEmpty ? (
@@ -1156,12 +1179,6 @@ function SelectionScreen({ navigation }: any) {
         </View>
         </>
         )}
-        <View style={styles.spacer} />
-        <CinemaButton
-          title={t('see_recommendations')}
-          type="secondary"
-          onPress={() => navigation.navigate('Recommendations')}
-        />
         <View style={styles.spacer} />
         <CinemaButton
           title={t('start_over')}
@@ -1853,12 +1870,16 @@ function App(): React.JSX.Element {
                       component={SelectionScreen}
                       options={{
                         title: t('app_title'),
-                        // Filters live only on the selection screen, so override the
-                        // global language-only headerRight to show the FilterTrigger
-                        // to the LEFT of the LanguageSwitcher here.
+                        // Filters live only on the selection screen. The FilterTrigger
+                        // sits on the LEFT of the centered title (no back button on the
+                        // initial route, so headerLeft is free)...
+                        headerLeft: () => <FilterTrigger />,
+                        // ...and headerRight (where the FilterTrigger used to be) now
+                        // holds the Recommendations shortcut to the left of the
+                        // language control.
                         headerRight: () => (
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <FilterTrigger />
+                            <RecommendationsTrigger />
                             <LanguageSwitcher />
                           </View>
                         ),
@@ -2354,14 +2375,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     includeFontPadding: false,
-  },
-  filtersContainerTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    paddingHorizontal: 10,
-    marginBottom: 10,
-    zIndex: 20,
   },
   filtersContainerBottom: {
     flexDirection: 'row',
