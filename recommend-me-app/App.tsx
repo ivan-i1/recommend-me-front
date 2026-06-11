@@ -1135,6 +1135,12 @@ function SelectionScreen({ navigation }: any) {
         )}
         <View style={styles.spacer} />
         <CinemaButton
+          title={t('see_recommendations')}
+          type="secondary"
+          onPress={() => navigation.navigate('Recommendations')}
+        />
+        <View style={styles.spacer} />
+        <CinemaButton
           title={t('start_over')}
           onPress={handleRequestNewMovies}
         />
@@ -1273,6 +1279,187 @@ function DetailsScreen({ route, navigation }: any) {
         <CinemaButton
           title={t('start_over')}
           onPress={handleStartOver}
+        />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function RecommendationsScreen({ navigation }: any) {
+  const { vector } = useContext(VectorContext);
+  const { stack, removeFromStack } = useContext(StackContext);
+  const { genres } = useContext(GenresContext);
+  const {
+    selectedGenres, minYear, maxYear,
+    selectedProviders, selectedLanguages, selectedCountry,
+    selectedActors, selectedDirectors,
+  } = useContext(FiltersContext);
+  const { region } = useContext(LocaleContext);
+  const { t } = useTranslation();
+
+  const countryCode = selectedCountry || region || DEFAULT_COUNTRY_CODE;
+  const actorIds = (selectedActors || []).map((a: any) => a.id);
+  const directorIds = (selectedDirectors || []).map((d: any) => d.id);
+
+  const [recs, setRecs] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isError, setIsError] = useState(false);
+
+  const hasVector = vector.length === 43;
+
+  const requestRecommendations = () => {
+    const genreIds = (selectedGenres ?? [])
+      .map((name: string) => genres.find((g: any) => g?.name?.toLowerCase() === name.toLowerCase())?.id)
+      .filter((id: any) => id !== undefined && id !== null) as number[];
+
+    // Body mirrors requestMoviePostPair's two_options payload verbatim.
+    const body = {
+      vector: vector.length === 43 ? vector : [],
+      min_year: minYear && minYear.length === 4 ? parseInt(minYear) : MIN_YEAR,
+      max_year: maxYear && maxYear.length === 4 ? parseInt(maxYear) : MAX_YEAR,
+      genres: genreIds,
+      adult: 0,
+      ids: stack.map((s: any) => s.id).filter(Boolean),
+      country_code: countryCode,
+      original_language: (selectedLanguages || []) as string[],
+      providers: (selectedProviders || []) as number[],
+      actors: actorIds as number[],
+      directors: directorIds as number[],
+    };
+
+    setIsError(false);
+    setIsLoading(true);
+    fetch(`${localTest}/movies/twelve_options/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(response => response.json())
+      .then(json => {
+        setRecs(Array.isArray(json) ? json.slice(0, 4) : []);
+        setIsLoading(false);
+      })
+      .catch(error => {
+        console.error(error);
+        setIsError(true);
+        setIsLoading(false);
+      });
+  };
+
+  useEffect(() => {
+    if (hasVector) {
+      requestRecommendations();
+    } else {
+      setRecs([]);
+    }
+    // requestRecommendations reads filter values from the context closure; we
+    // refetch on vector change (the running pick), guarded by hasVector.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vector]);
+
+  // Maps a raw twelve_options object to the MovieCard-mapped shape DetailsScreen
+  // expects (same mapping SelectionScreen uses for MovieCard).
+  const goToDetails = (rec: any) => {
+    navigation.push('Details', {
+      movie: {
+        name: rec?.title,
+        image: rec?.image_url,
+        actor: rec?.actors ? String(rec.actors).replace(/[\[\]']/g, '') : 'Unknown',
+        director: rec?.director || 'Unknown',
+        overview: rec?.overview,
+        year: rec?.release_date ? String(rec.release_date).slice(0, 4) : undefined,
+        genres: Array.isArray(rec?.genres) ? rec.genres.map((g: any) => g.name).filter(Boolean) : [],
+        vector: rec?.vector,
+        id: rec?.id,
+        score: rec?.vote_average,
+        trailer_path: rec?.trailer_path,
+      },
+    });
+  };
+
+  // Cold start: no running pick yet — placeholder CTA, no endpoint call.
+  if (!hasVector) {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <View style={styles.container}>
+          <MarqueeHeader text={t('rec_empty_title')} />
+          <Text style={styles.subText}>{t('rec_empty_subtitle')}</Text>
+          <View style={styles.spacer} />
+          <CinemaButton
+            title={t('back_to_selection')}
+            onPress={() => navigation.navigate('Pick a movie')}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isError) {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <View style={styles.container}>
+          <MarqueeHeader text={t('error_title')} />
+          <Text style={styles.subText}>{t('error_subtitle')}</Text>
+          <View style={styles.spacerLarge} />
+          <CinemaButton title={t('retry_connection')} onPress={requestRecommendations} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+        <View style={styles.container}>
+          <MarqueeHeader text={t('loading_title')} />
+          <Text style={styles.subText}>{t('loading_subtitle')}</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
+        <MarqueeHeader text={t('your_recommendations')} />
+        <View style={styles.recRow}>
+          {recs.map((rec: any, index: number) => (
+            <View key={rec?.id ?? index} style={styles.recCell}>
+              <PosterButton imageUri={rec?.image_url} onPress={() => goToDetails(rec)} />
+            </View>
+          ))}
+        </View>
+
+        {stack.length > 0 && (
+          <View style={styles.lineupSection}>
+            <View style={styles.lineupCabinet}>
+              <MarqueeHeader text={t('now_showing')} variant="blue" containerStyle={styles.lineupHeaderInCabinet} />
+              <View style={styles.recCloud}>
+                {stack.map((item: any, index: number) => (
+                  <View key={item?.id ?? index} style={styles.recCloudCell}>
+                    <PosterButton
+                      imageUri={item.image}
+                      onPress={() => navigation.push('Details', { movie: item })}
+                    />
+                    <TouchableOpacity
+                      onPress={() => removeFromStack(item.id)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={styles.recRemove}
+                      activeOpacity={0.5}
+                    >
+                      <Text style={styles.recRemoveText}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        )}
+
+        <View style={styles.spacerLarge} />
+        <CinemaButton
+          title={t('back_to_selection')}
+          onPress={() => navigation.navigate('Pick a movie')}
         />
       </ScrollView>
     </SafeAreaView>
@@ -1437,6 +1624,7 @@ function App(): React.JSX.Element {
                       }}
                     />
                     <Stack.Screen name="Details" component={DetailsScreen} options={{ title: t('details_title') }} />
+                    <Stack.Screen name="Recommendations" component={RecommendationsScreen} options={{ title: t('recommendations_title') }} />
                   </Stack.Navigator>
                 </NavigationContainer>
               </PairContext.Provider>
@@ -1784,6 +1972,48 @@ const styles = StyleSheet.create({
     fontSize: 24,
     lineHeight: 28,
     color: COLORS.marqueeInk,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  recRow: {
+    flexDirection: 'row',
+    width: '100%',
+    paddingHorizontal: 8,
+    marginBottom: 20,
+  },
+  recCell: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+  recCloud: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  recCloudCell: {
+    width: '30%',
+    marginHorizontal: '1.5%',
+    position: 'relative',
+  },
+  recRemove: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: COLORS.cardBg + 'E6',
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+    borderRadius: 14,
+    width: 28,
+    height: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recRemoveText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 22,
+    lineHeight: 24,
+    color: COLORS.gold,
     includeFontPadding: false,
     textAlignVertical: 'center',
   },

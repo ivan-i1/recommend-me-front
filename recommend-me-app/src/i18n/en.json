@@ -1,6 +1,11 @@
 {
   "app_title": "BINGEPICK",
   "details_title": "MOVIE DETAILS",
+  "recommendations_title": "YOUR PICKS",
+  "your_recommendations": "TONIGHT'S FEATURE PRESENTATION",
+  "see_recommendations": "See Recommendations",
+  "rec_empty_title": "THE REEL IS EMPTY",
+  "rec_empty_subtitle": "Pick a few movies first and we'll roll your personalized lineup.",
 
   "select_best_movie": "Select the best movie",
   "start_over": "Start Over",

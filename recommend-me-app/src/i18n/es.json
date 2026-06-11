@@ -1,6 +1,11 @@
 {
   "app_title": "BINGEPICK",
   "details_title": "DETALLES",
+  "recommendations_title": "TUS RECOMENDACIONES",
+  "your_recommendations": "FUNCIÓN PRINCIPAL DE ESTA NOCHE",
+  "see_recommendations": "Ver recomendaciones",
+  "rec_empty_title": "EL ROLLO ESTÁ VACÍO",
+  "rec_empty_subtitle": "Elige algunas películas primero y prepararemos tu cartelera personalizada.",
 
   "select_best_movie": "Elige la mejor película",
   "start_over": "Empezar de nuevo",
