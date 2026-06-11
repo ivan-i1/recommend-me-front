@@ -1221,7 +1221,6 @@ function DetailsScreen({ route, navigation }: any) {
       <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
         {movie ? (
           <View style={styles.ticketBooth}>
-            <MarqueeHeader text={t('coming_attractions')} />
             <View style={styles.posterWrap}>
               <Image
                 source={{ uri: movie.image }}
@@ -1242,6 +1241,8 @@ function DetailsScreen({ route, navigation }: any) {
             <Text style={[styles.text, { fontSize: 30, color: COLORS.gold, textAlign: 'center', marginHorizontal: 20 }]}>
               {movie.name}
             </Text>
+
+            <TrailerPlayer url={movie.trailer_path} />
 
             <View style={{ width: '90%', marginVertical: 15, backgroundColor: COLORS.cardBg, padding: 18, borderRadius: 8, borderWidth: 1, borderColor: COLORS.blue }}>
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
@@ -1264,7 +1265,6 @@ function DetailsScreen({ route, navigation }: any) {
                 {movie.overview || t('no_overview')}
               </Text>
             </View>
-            <TrailerPlayer url={movie.trailer_path} />
           </View>
         ) : (<Text style={styles.subText}>{t('no_details')}</Text>)}
         {stack.length > 0 && (
@@ -1951,7 +1951,7 @@ const styles = StyleSheet.create({
   trailerSection: {
     width: '90%',
     alignItems: 'center',
-    marginBottom: 15,
+    marginTop: 15,
   },
   trailerHeading: {
     fontFamily: 'Oswald-Bold',
