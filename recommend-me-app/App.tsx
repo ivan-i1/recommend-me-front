@@ -801,7 +801,17 @@ function SelectionScreen({ navigation }: any) {
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const scrollRef = useRef<ScrollView>(null);
+
+  // Fires title search from the main screen. Submit-based (not live): on a
+  // non-empty trimmed query, hands off to the dedicated results screen in movie
+  // mode (the default); the results screen lets the user switch endpoints/refine.
+  const handleSearchSubmit = () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    navigation.navigate('SearchResults', { query: q, mode: 'movie' });
+  };
 
   const requestMoviePair = (
     currentGenres = selectedGenres,
@@ -1060,6 +1070,19 @@ function SelectionScreen({ navigation }: any) {
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
+        <View style={styles.searchBoxContainer}>
+          <TextInput
+            style={styles.panelInput}
+            placeholder={t('search_placeholder')}
+            placeholderTextColor={COLORS.borderDark}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmitEditing={handleSearchSubmit}
+            returnKeyType="search"
+            autoCorrect={false}
+          />
+        </View>
+
         <View style={styles.filtersContainerTop}>
           <CinemaMultiSelectModal
             label={t('filter_genre')}
@@ -1466,6 +1489,224 @@ function RecommendationsScreen({ navigation }: any) {
   );
 }
 
+// Maps a raw movie object (from searchMovie or the POST /movies/details/ lookup)
+// to the MovieCard-mapped shape DetailsScreen expects — same mapping
+// SelectionScreen/RecommendationsScreen use before navigation.push('Details').
+function mapRawMovieForDetails(m: any) {
+  return {
+    name: m?.title,
+    image: m?.image_url,
+    actor: m?.actors ? String(m.actors).replace(/[\[\]']/g, '') : 'Unknown',
+    director: m?.director || 'Unknown',
+    overview: m?.overview,
+    year: m?.release_date ? String(m.release_date).slice(0, 4) : undefined,
+    genres: Array.isArray(m?.genres) ? m.genres.map((g: any) => g.name).filter(Boolean) : [],
+    vector: m?.vector,
+    id: m?.id,
+    score: m?.vote_average,
+    trailer_path: m?.trailer_path,
+  };
+}
+
+// Results screen reached from the main-screen search box. Reads the submitted
+// query + initial mode from route params, lets the user refine the query and
+// switch the search endpoint via single-select chips (Movie / Actor / Director),
+// and re-runs the fetch whenever the submitted query or mode changes. Movie mode
+// renders poster cards; actor/director mode renders people with their films.
+function SearchResultsScreen({ route, navigation }: any) {
+  const { t } = useTranslation();
+  const { region } = useContext(LocaleContext);
+  const { selectedCountry } = useContext(FiltersContext);
+  const countryCode = selectedCountry || region || DEFAULT_COUNTRY_CODE;
+
+  // `query` is the SUBMITTED query that actually drives fetches; `draft` is the
+  // editable refine-box text, promoted to `query` only on submit.
+  const [query, setQuery] = useState<string>(route?.params?.query || '');
+  const [draft, setDraft] = useState<string>(route?.params?.query || '');
+  const [mode, setMode] = useState<'movie' | 'actor' | 'director'>(
+    route?.params?.mode || 'movie',
+  );
+  const [results, setResults] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isError, setIsError] = useState(false);
+
+  const reqIdRef = useRef(0);
+
+  // Re-run the search whenever the submitted query or the selected mode changes.
+  // Mirrors PanelTypeahead's URL-building; encodes the *_selected param as [].
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setIsLoading(false);
+      setIsError(false);
+      return;
+    }
+    const myReq = ++reqIdRef.current;
+    setIsLoading(true);
+    setIsError(false);
+
+    let url: string;
+    if (mode === 'movie') {
+      url = `${localTest}/movies/searchMovie/?q=${encodeURIComponent(q)}`;
+    } else if (mode === 'actor') {
+      url = `${localTest}/details/searchActor?q=${encodeURIComponent(q)}&actors_selected=${encodeURIComponent('[]')}`;
+    } else {
+      url = `${localTest}/details/searchDirector?q=${encodeURIComponent(q)}&directors_selected=${encodeURIComponent('[]')}`;
+    }
+
+    fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+      .then(res => res.json())
+      .then(json => {
+        if (myReq !== reqIdRef.current) return; // stale response, ignore
+        const list = Array.isArray(json) ? json : (json?.data || []);
+        setResults(list);
+        setIsLoading(false);
+      })
+      .catch(err => {
+        if (myReq !== reqIdRef.current) return;
+        console.error('Search failed', err);
+        setResults([]);
+        setIsError(true);
+        setIsLoading(false);
+      });
+  }, [query, mode]);
+
+  const handleRefineSubmit = () => {
+    const q = draft.trim();
+    if (!q) return;
+    setQuery(q);
+  };
+
+  const openMovieDetails = (movie: any) => {
+    navigation.push('Details', { movie: mapRawMovieForDetails(movie) });
+  };
+
+  // A person's movie only arrives as {movie__id, movie__title}; fetch the full
+  // object via POST /movies/details/ before opening Details.
+  const openPersonMovie = (movieId: any) => {
+    fetch(`${localTest}/movies/details/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [movieId], country_code: countryCode }),
+    })
+      .then(res => res.json())
+      .then(json => {
+        const list = Array.isArray(json) ? json : (json?.data || []);
+        const full = list[0];
+        if (full) {
+          navigation.push('Details', { movie: mapRawMovieForDetails(full) });
+        }
+      })
+      .catch(err => console.error('Movie details lookup failed', err));
+  };
+
+  const MODES: Array<{ key: 'movie' | 'actor' | 'director'; label: string }> = [
+    { key: 'movie', label: t('search_mode_movie') },
+    { key: 'actor', label: t('search_mode_actor') },
+    { key: 'director', label: t('search_mode_director') },
+  ];
+
+  return (
+    <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
+      <ScrollView contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
+        <View style={styles.searchBoxContainer}>
+          <TextInput
+            style={styles.panelInput}
+            placeholder={t('search_placeholder')}
+            placeholderTextColor={COLORS.borderDark}
+            value={draft}
+            onChangeText={setDraft}
+            onSubmitEditing={handleRefineSubmit}
+            returnKeyType="search"
+            autoCorrect={false}
+          />
+
+          <View style={styles.chipCloud}>
+            {MODES.map(m => {
+              const active = mode === m.key;
+              return (
+                <TouchableOpacity
+                  key={m.key}
+                  style={[styles.chip, active ? styles.chipSelected : styles.chipUnselected]}
+                  onPress={() => setMode(m.key)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.chipText, active ? styles.chipTextSelected : styles.chipTextUnselected]}>
+                    {m.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
+        {isError ? (
+          <View style={styles.emptyState}>
+            <MarqueeHeader text={t('error_title')} />
+            <Text style={styles.subText}>{t('error_subtitle')}</Text>
+          </View>
+        ) : isLoading ? (
+          <View style={styles.emptyState}>
+            <MarqueeHeader text={t('loading_title')} />
+            <Text style={styles.subText}>{t('loading_subtitle')}</Text>
+          </View>
+        ) : results.length === 0 ? (
+          <View style={styles.emptyState}>
+            <MarqueeHeader text={t('search_no_results')} variant="blue" />
+          </View>
+        ) : mode === 'movie' ? (
+          <View style={styles.searchMovieGrid}>
+            {results.map((movie: any) => (
+              <View key={String(movie.id)} style={styles.searchMovieCell}>
+                <Text
+                  style={[styles.textGold, styles.text, { textAlign: 'center', marginBottom: 6 }]}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                >
+                  {movie.title}
+                </Text>
+                <PosterButton imageUri={movie.image_url} onPress={() => openMovieDetails(movie)} />
+              </View>
+            ))}
+          </View>
+        ) : (
+          <View style={styles.searchPeopleList}>
+            {results.map((person: any) => (
+              <View key={String(person.id)} style={styles.searchPersonCard}>
+                <View style={styles.typeaheadResult}>
+                  <Text style={styles.typeaheadResultName}>{person.name}</Text>
+                  {person.movie_count != null && (
+                    <Text style={styles.typeaheadResultMeta}>
+                      {t('search_movie_count', { count: person.movie_count })}
+                    </Text>
+                  )}
+                </View>
+                {(person.movies || []).map((mv: any) => (
+                  <TouchableOpacity
+                    key={String(mv.movie__id)}
+                    style={styles.searchPersonMovie}
+                    onPress={() => openPersonMovie(mv.movie__id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.searchPersonMovieText}>{mv.movie__title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ))}
+          </View>
+        )}
+
+        <View style={styles.spacerLarge} />
+        <CinemaButton
+          title={t('back_to_selection')}
+          onPress={() => navigation.navigate('Pick a movie')}
+        />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 function App(): React.JSX.Element {
   const [showSplash, setShowSplash] = useState(true);
   const [stack, setStack] = useState<any[]>([]);
@@ -1625,6 +1866,7 @@ function App(): React.JSX.Element {
                     />
                     <Stack.Screen name="Details" component={DetailsScreen} options={{ title: t('details_title') }} />
                     <Stack.Screen name="Recommendations" component={RecommendationsScreen} options={{ title: t('recommendations_title') }} />
+                    <Stack.Screen name="SearchResults" component={SearchResultsScreen} options={{ title: t('search_results_title') }} />
                   </Stack.Navigator>
                 </NavigationContainer>
               </PairContext.Provider>
@@ -2075,6 +2317,43 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     includeFontPadding: false,
     textAlignVertical: 'center',
+  },
+  searchBoxContainer: {
+    width: '100%',
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
+  searchMovieGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-around',
+    width: '100%',
+    paddingHorizontal: 10,
+  },
+  searchMovieCell: {
+    width: '45%',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  searchPeopleList: {
+    width: '100%',
+    paddingHorizontal: 14,
+  },
+  searchPersonCard: {
+    marginBottom: 18,
+  },
+  searchPersonMovie: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderDark,
+  },
+  searchPersonMovieText: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.textLight,
+    fontSize: 14,
+    lineHeight: 18,
+    includeFontPadding: false,
   },
   filtersContainerTop: {
     flexDirection: 'row',

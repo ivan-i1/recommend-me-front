@@ -64,5 +64,13 @@
   "filter_movie_count": "{{count}} películas",
   "filters_reset_extra": "Limpiar filtros extra",
 
+  "search_placeholder": "Busca en la cartelera...",
+  "search_results_title": "BÚSQUEDA",
+  "search_mode_movie": "Películas",
+  "search_mode_actor": "Actores",
+  "search_mode_director": "Directores",
+  "search_no_results": "No hay nada en cartelera para esa búsqueda.",
+  "search_movie_count": "{{count}} películas",
+
   "language_name": "Español"
 }

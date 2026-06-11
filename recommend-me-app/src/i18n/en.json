@@ -64,5 +64,13 @@
   "filter_movie_count": "{{count}} films",
   "filters_reset_extra": "Clear Extra Filters",
 
+  "search_placeholder": "Search the marquee...",
+  "search_results_title": "SEARCH",
+  "search_mode_movie": "Movies",
+  "search_mode_actor": "Actors",
+  "search_mode_director": "Directors",
+  "search_no_results": "Nothing playing for that search.",
+  "search_movie_count": "{{count}} films",
+
   "language_name": "English"
 }
