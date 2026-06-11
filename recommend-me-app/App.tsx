@@ -103,6 +103,28 @@ const LocaleContext = createContext({
   region: '',
 });
 
+// Single source of truth for the active side-panel filter count (badge on the
+// nav-bar FilterTrigger). Providers/languages count only when an explicit
+// non-empty subset is chosen (null = all and [] = none both count as 0);
+// country counts when set; actors/directors by length.
+function countExtraFilters(filters: {
+  selectedProviders: number[] | null;
+  selectedLanguages: string[] | null;
+  selectedCountry: string;
+  selectedActors: any[];
+  selectedDirectors: any[];
+}): number {
+  const providerCount = Array.isArray(filters.selectedProviders) ? filters.selectedProviders.length : 0;
+  const languageCount = Array.isArray(filters.selectedLanguages) ? filters.selectedLanguages.length : 0;
+  return (
+    providerCount +
+    languageCount +
+    (filters.selectedActors || []).length +
+    (filters.selectedDirectors || []).length +
+    (filters.selectedCountry ? 1 : 0)
+  );
+}
+
 // --- CUSTOM COMPONENTS ---
 const CinemaButton = ({ title, onPress, type = 'primary', width }: any) => {
   const isPrimary = type === 'primary';
@@ -278,6 +300,36 @@ function LanguageSwitcher() {
         </Pressable>
       </Modal>
     </>
+  );
+}
+
+// Nav-bar trigger that opens the filter menu, mirroring LanguageSwitcher's
+// gold-on-red glyph styling. Badge reuses filtersBadge*; count via the shared
+// countExtraFilters helper so it stays in sync with SelectionScreen.
+function FilterTrigger() {
+  const { openPanel } = useContext(FilterUIContext);
+  const {
+    selectedProviders, selectedLanguages, selectedCountry,
+    selectedActors, selectedDirectors,
+  } = useContext(FiltersContext);
+  const count = countExtraFilters({
+    selectedProviders, selectedLanguages, selectedCountry,
+    selectedActors, selectedDirectors,
+  });
+  return (
+    <TouchableOpacity
+      onPress={openPanel}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={styles.langTrigger}
+      activeOpacity={0.7}
+    >
+      <Text style={styles.langTriggerText}>▤</Text>
+      {count > 0 && (
+        <View style={styles.filtersBadge}>
+          <Text style={styles.filtersBadgeText}>{count}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -563,10 +615,11 @@ const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam }: 
   );
 };
 
-// Slide-in side panel hosting the Story 3 filters (providers / language / country
-// / cast / directors). Values are staged in FiltersContext and only sent when the
-// user fires the existing "Request New Movies" / selection flow.
-const FilterPanel = ({ visible, onClose, onApply }: any) => {
+// Dropdown menu hosting the Story 3 filters (providers / language / country
+// / cast / directors). Mirrors LanguageSwitcher's modalBackdrop + anchored card
+// pattern: a fade Modal with a backdrop Pressable that closes on outside tap.
+// Values are staged in FiltersContext; only the bottom Apply button refetches.
+const FilterMenu = ({ visible, onClose, onApply }: any) => {
   const { t } = useTranslation();
   const { providers, countries, languages } = useContext(FilterOptionsContext);
   const {
@@ -578,10 +631,10 @@ const FilterPanel = ({ visible, onClose, onApply }: any) => {
   } = useContext(FiltersContext);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.panelOverlay}>
-        <Pressable style={styles.panelScrim} onPress={onClose} />
-        <View style={styles.panelSheet}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        {/* Stop propagation so taps inside the card don't close the menu. */}
+        <Pressable style={styles.filterMenuCard} onPress={() => {}}>
           <View style={styles.panelHeader}>
             <Text style={styles.panelTitle}>{t('filters_panel_title')}</Text>
             <TouchableOpacity onPress={onClose} hitSlop={10}>
@@ -637,8 +690,8 @@ const FilterPanel = ({ visible, onClose, onApply }: any) => {
           <View style={styles.panelFooter}>
             <CinemaButton title={t('filter_apply')} onPress={onApply} />
           </View>
-        </View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 };
@@ -743,20 +796,11 @@ function SelectionScreen({ navigation }: any) {
   const actorIds = (selectedActors || []).map((a: any) => a.id);
   const directorIds = (selectedDirectors || []).map((d: any) => d.id);
 
-  // Count of active side-panel filters, shown as a badge on the Filters trigger.
-  // Country only counts when explicitly chosen (the region fallback isn't a user
-  // filter).
-  const extraFilterCount =
-    (selectedProviders || []).length +
-    (selectedLanguages || []).length +
-    (selectedActors || []).length +
-    (selectedDirectors || []).length +
-    (selectedCountry ? 1 : 0);
+  const { isPanelOpen, closePanel } = useContext(FilterUIContext);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
-  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const requestMoviePair = (
@@ -921,8 +965,8 @@ function SelectionScreen({ navigation }: any) {
   // cast / directors), leaving genre + year range intact. Country resets to ''
   // so it falls back to the detected region again.
   const clearExtraFilters = () => {
-    setSelectedProviders([]);
-    setSelectedLanguages([]);
+    setSelectedProviders(null);
+    setSelectedLanguages(null);
     setSelectedCountry('');
     setSelectedActors([]);
     setSelectedDirectors([]);
@@ -946,7 +990,7 @@ function SelectionScreen({ navigation }: any) {
   // using the current filters (incl. the just-set provider/cast/etc selections).
   // Dismissing via the scrim or ✕ only closes — it does not fetch.
   const handleApplyFilters = () => {
-    setIsPanelOpen(false);
+    closePanel();
     clearStack();
     clearVector();
     requestMoviePair(selectedGenres, minYear, maxYear, true, []);
@@ -1042,22 +1086,7 @@ function SelectionScreen({ navigation }: any) {
           />
         </View>
 
-        <View style={styles.filtersTriggerRow}>
-          <TouchableOpacity
-            style={styles.filtersTrigger}
-            onPress={() => setIsPanelOpen(true)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.filtersTriggerText}>▤  {t('filters_open')}</Text>
-            {extraFilterCount > 0 && (
-              <View style={styles.filtersBadge}>
-                <Text style={styles.filtersBadgeText}>{extraFilterCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <FilterPanel visible={isPanelOpen} onClose={() => setIsPanelOpen(false)} onApply={handleApplyFilters} />
+        <FilterMenu visible={isPanelOpen} onClose={closePanel} onApply={handleApplyFilters} />
 
         {showEmpty ? (
           <View style={styles.emptyState}>
@@ -1133,8 +1162,8 @@ function DetailsScreen({ route, navigation }: any) {
     setMinYear(MIN_YEAR.toString());
     setMaxYear(MAX_YEAR.toString());
     // Start Over also clears the extra side-panel filters.
-    setSelectedProviders([]);
-    setSelectedLanguages([]);
+    setSelectedProviders(null);
+    setSelectedLanguages(null);
     setSelectedCountry('');
     setSelectedActors([]);
     setSelectedDirectors([]);
@@ -1263,11 +1292,17 @@ function App(): React.JSX.Element {
 
   // Story 3 side-panel filter state. Actors/directors hold {id, name} objects so
   // chips can show names while only ids are sent to the API.
-  const [selectedProviders, setSelectedProviders] = useState<number[]>([]);
-  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedProviders, setSelectedProviders] = useState<number[] | null>(null);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[] | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [selectedActors, setSelectedActors] = useState<any[]>([]);
   const [selectedDirectors, setSelectedDirectors] = useState<any[]>([]);
+
+  // Filter menu open/close state, lifted to App() so the nav-bar FilterTrigger
+  // (rendered by the navigator) can open the menu that SelectionScreen renders.
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const openPanel = () => setIsPanelOpen(true);
+  const closePanel = () => setIsPanelOpen(false);
 
   // Lookup lists for the side panel, fetched once on mount.
   const [providerOptions, setProviderOptions] = useState<any[]>([]);
@@ -1371,6 +1406,7 @@ function App(): React.JSX.Element {
               selectedDirectors, setSelectedDirectors,
             }}>
             <FilterOptionsContext.Provider value={{ providers: providerOptions, countries: countryOptions, languages: languageOptions }}>
+            <FilterUIContext.Provider value={{ isPanelOpen, openPanel, closePanel }}>
             <StackContext.Provider value={{ stack, pushToStack, removeFromStack, clearStack }}>
               <PairContext.Provider value={{ pair, setPair, clearPair }}>
                 <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
@@ -1384,12 +1420,28 @@ function App(): React.JSX.Element {
                       headerTitleAlign: 'center',
                       headerRight: () => <LanguageSwitcher />,
                     }}>
-                    <Stack.Screen name="Pick a movie" component={SelectionScreen} options={{ title: t('app_title') }} />
+                    <Stack.Screen
+                      name="Pick a movie"
+                      component={SelectionScreen}
+                      options={{
+                        title: t('app_title'),
+                        // Filters live only on the selection screen, so override the
+                        // global language-only headerRight to show the FilterTrigger
+                        // to the LEFT of the LanguageSwitcher here.
+                        headerRight: () => (
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <FilterTrigger />
+                            <LanguageSwitcher />
+                          </View>
+                        ),
+                      }}
+                    />
                     <Stack.Screen name="Details" component={DetailsScreen} options={{ title: t('details_title') }} />
                   </Stack.Navigator>
                 </NavigationContainer>
               </PairContext.Provider>
             </StackContext.Provider>
+            </FilterUIContext.Provider>
             </FilterOptionsContext.Provider>
             </FiltersContext.Provider>
           </VectorContext.Provider>
@@ -1497,6 +1549,8 @@ const styles = StyleSheet.create({
     height: 220,
   },
   langTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
@@ -1955,30 +2009,6 @@ const styles = StyleSheet.create({
   },
 
   // --- FILTER SIDE PANEL ---
-  filtersTriggerRow: {
-    width: '100%',
-    paddingHorizontal: 10,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  filtersTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.cardBg,
-    borderWidth: 1,
-    borderColor: COLORS.blue,
-    borderRadius: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  filtersTriggerText: {
-    fontFamily: 'Limelight-Regular',
-    color: COLORS.blue,
-    fontSize: 16,
-    lineHeight: 20,
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
   filtersBadge: {
     marginLeft: 8,
     minWidth: 20,
@@ -1997,23 +2027,22 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
-  panelOverlay: {
-    flex: 1,
-    // row-reverse puts the sheet (2nd child) on the LEFT and the scrim on the right.
-    flexDirection: 'row-reverse',
-  },
-  panelScrim: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-  },
-  panelSheet: {
-    width: '85%',
+  // Dropdown menu card: anchored near the top (under the header), mirroring
+  // LanguageSwitcher's langCard. modalBackdrop centers, so override with
+  // top alignment + marginTop to pin it below the nav bar.
+  filterMenuCard: {
+    width: '100%',
     maxWidth: 420,
-    height: '100%',
+    maxHeight: '80%',
+    alignSelf: 'center',
+    marginTop: 48,
+    marginBottom: 'auto',
     backgroundColor: COLORS.background,
-    borderRightWidth: 1,
-    borderRightColor: COLORS.gold,
-    paddingTop: 40,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+    borderRadius: 8,
+    overflow: 'hidden',
+    paddingTop: 12,
   },
   panelHeader: {
     flexDirection: 'row',
