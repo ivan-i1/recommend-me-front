@@ -5,7 +5,7 @@
  * @format
  */
 import React, { useState, useContext, createContext, useEffect, useRef, use } from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable } from 'react-native';
+import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable, Linking, TextInput } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -16,7 +16,11 @@ import i18n, { detectLanguage, detectRegion } from './src/i18n';
 
 const localTest = Platform.OS === 'web'
   ? ''
-  : 'http://188.166.155.92:8000';
+  : 'http://188.166.155.92';
+
+// Default region sent to the backend (country_code) when the device locale
+// exposes no region. The API requires a country_code for provider availability.
+const DEFAULT_COUNTRY_CODE = 'US';
 const MAX_YEAR = 2025;
 const MIN_YEAR = 2020;
 
@@ -58,6 +62,39 @@ const FiltersContext = createContext({
   setMinYear: (val: string) => { },
   maxYear: '',
   setMaxYear: (val: string) => { },
+  // Story 3 side-panel filters. Providers/languages/country use lookup lists;
+  // actors/directors are stored as {id, name} so chips can show the name while
+  // only the id is sent to the API.
+  // Providers/languages use the chip-cloud "all" sentinel: null = all/unfiltered,
+  // [] = none, non-empty array = explicit subset. Both null and [] mean
+  // "no constraint" when building the request.
+  selectedProviders: null as number[] | null,
+  setSelectedProviders: (vals: number[] | null) => { },
+  selectedLanguages: null as string[] | null,
+  setSelectedLanguages: (vals: string[] | null) => { },
+  selectedCountry: '' as string,
+  setSelectedCountry: (val: string) => { },
+  selectedActors: [] as any[],
+  setSelectedActors: (vals: any[]) => { },
+  selectedDirectors: [] as any[],
+  setSelectedDirectors: (vals: any[]) => { },
+});
+
+// Lookup lists for the filter side panel (providers / countries / languages),
+// fetched once on mount alongside genres.
+const FilterOptionsContext = createContext({
+  providers: [] as any[],
+  countries: [] as any[],
+  languages: [] as any[],
+});
+
+// Holds only the filter side-panel open/close state, lifted to App() level so the
+// nav-bar FilterTrigger (rendered by the navigator, outside SelectionScreen) can
+// open the panel that SelectionScreen renders.
+const FilterUIContext = createContext({
+  isPanelOpen: false,
+  openPanel: () => { },
+  closePanel: () => { },
 });
 
 const LocaleContext = createContext({
@@ -150,6 +187,55 @@ const MarqueeHeader = ({
   );
 };
 
+// Pulls the 11-char YouTube video id out of watch?v=, youtu.be/, or /embed/ urls.
+function extractYouTubeId(url: any): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const patterns = [
+    /[?&]v=([A-Za-z0-9_-]{11})/,       // https://www.youtube.com/watch?v=ID
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,  // https://youtu.be/ID
+    /\/embed\/([A-Za-z0-9_-]{11})/,    // https://www.youtube.com/embed/ID
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function TrailerPlayer({ url }: { url: string }) {
+  const { t } = useTranslation();
+  const videoId = extractYouTubeId(url);
+  if (!videoId) return null;
+
+  return (
+    <View style={styles.trailerSection}>
+      <Text style={styles.trailerHeading}>{t('trailer_heading')}</Text>
+      {Platform.OS === 'web' ? (
+        <View style={styles.trailerFrame}>
+          {React.createElement('iframe', {
+            src: `https://www.youtube.com/embed/${videoId}`,
+            width: '100%',
+            height: '100%',
+            frameBorder: '0',
+            allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
+            allowFullScreen: true,
+            style: { border: 0, borderRadius: 8 },
+          })}
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.trailerButton}
+          onPress={() => Linking.openURL(url)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.trailerPlayGlyph}>▶</Text>
+          <Text style={styles.trailerButtonText}>{t('watch_trailer')}</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
   { code: 'en', label: 'English' },
   { code: 'es', label: 'Español' },
@@ -225,20 +311,32 @@ function MovieCard({ movieData }: { movieData: any }) {
   );
 }
 
-const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: any) => {
+// Genre-style chip-cloud multi-select. `selectedValues` uses the "all" sentinel:
+// null = all selected, [] = none, non-empty array = explicit subset.
+// `getValue`/`getLabel` default to identity so plain-string usage (genres) keeps
+// working; pass them to drive object-based lookup lists (providers/languages).
+const CinemaMultiSelectModal = ({
+  label,
+  options,
+  selectedValues,
+  onChange,
+  getValue = (o: any) => o,
+  getLabel = (o: any) => o,
+}: any) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
 
   const allSelected = selectedValues === null;
   const noneSelected = Array.isArray(selectedValues) && selectedValues.length === 0;
-  const isChecked = (opt: string) => allSelected || (selectedValues || []).includes(opt);
+  const isChecked = (opt: any) => allSelected || (selectedValues || []).includes(getValue(opt));
 
-  const toggle = (val: string) => {
-    let next: string[];
+  const toggle = (opt: any) => {
+    const val = getValue(opt);
+    let next: any[];
     if (allSelected) {
-      next = options.filter((o: string) => o !== val);
+      next = options.map(getValue).filter((v: any) => v !== val);
     } else if (selectedValues.includes(val)) {
-      next = selectedValues.filter((v: string) => v !== val);
+      next = selectedValues.filter((v: any) => v !== val);
     } else {
       next = [...selectedValues, val];
     }
@@ -252,12 +350,18 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
   const selectAll = () => onChange(null);
   const selectNone = () => onChange([]);
 
+  // Label shown for the single-selected case: find the option whose value matches.
+  const singleLabel = () => {
+    const opt = options.find((o: any) => getValue(o) === selectedValues[0]);
+    return opt !== undefined ? getLabel(opt) : String(selectedValues[0]);
+  };
+
   const valueText = allSelected
     ? `${t('filter_all')} ▼`
     : noneSelected
       ? `${t('filter_any')} ▼`
       : selectedValues.length === 1
-        ? selectedValues[0]
+        ? singleLabel()
         : t('filter_selected', { count: selectedValues.length });
 
   return (
@@ -283,17 +387,17 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{label}</Text>
             <ScrollView style={styles.modalList} contentContainerStyle={styles.chipCloud}>
-              {options.map((opt: string) => {
+              {options.map((opt: any) => {
                 const checked = isChecked(opt);
                 return (
                   <TouchableOpacity
-                    key={opt}
+                    key={String(getValue(opt))}
                     style={[styles.chip, checked ? styles.chipSelected : styles.chipUnselected]}
                     onPress={() => toggle(opt)}
                     activeOpacity={0.7}
                   >
                     <Text style={[styles.chipText, checked ? styles.chipTextSelected : styles.chipTextUnselected]}>
-                      {opt}
+                      {getLabel(opt)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -314,6 +418,228 @@ const CinemaMultiSelectModal = ({ label, options, selectedValues, onChange }: an
         </View>
       </Modal>
     </View>
+  );
+};
+
+// --- FILTER SIDE PANEL HELPERS ---
+
+// Single-select for lookup lists (used by Country).
+const PanelSingleSelect = ({ label, options, selectedValue, getValue, getLabel, onChange }: any) => {
+  return (
+    <View style={styles.panelSection}>
+      <Text style={styles.panelSectionTitle}>{label}</Text>
+      <View style={styles.chipCloud}>
+        {options.map((opt: any) => {
+          const val = getValue(opt);
+          const checked = val === selectedValue;
+          return (
+            <TouchableOpacity
+              key={String(val)}
+              style={[styles.chip, checked ? styles.chipSelected : styles.chipUnselected]}
+              onPress={() => onChange(val)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.chipText, checked ? styles.chipTextSelected : styles.chipTextUnselected]}>
+                {getLabel(opt)}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+};
+
+// Min characters before a typeahead query fires, debounce window, and the cap on
+// rendered suggestions.
+const TYPEAHEAD_MIN_CHARS = 2;
+const TYPEAHEAD_DEBOUNCE_MS = 300;
+const TYPEAHEAD_MAX_RESULTS = 8;
+
+// Debounced typeahead multi-select used for both Cast and Directors. `selected`
+// is an array of {id, name}; only ids are sent to the search endpoint and (later)
+// to the movie request. `endpoint` is the search path; `selectedParam` is the
+// query-string key that carries already-selected ids back to the server.
+const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam }: any) => {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const timerRef = useRef<any>(null);
+
+  const selectedIds = (selected || []).map((s: any) => s.id);
+
+  useEffect(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (query.trim().length < TYPEAHEAD_MIN_CHARS) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    timerRef.current = setTimeout(() => {
+      const selectedEncoded = encodeURIComponent('[' + selectedIds.join(',') + ']');
+      const url = `${localTest}${endpoint}?q=${encodeURIComponent(query.trim())}&${selectedParam}=${selectedEncoded}`;
+      fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+        .then(res => res.json())
+        .then(json => {
+          const list = Array.isArray(json) ? json : (json?.data || []);
+          setResults(list.slice(0, TYPEAHEAD_MAX_RESULTS));
+          setSearching(false);
+        })
+        .catch(err => {
+          console.error('Typeahead search failed', err);
+          setResults([]);
+          setSearching(false);
+        });
+    }, TYPEAHEAD_DEBOUNCE_MS);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    // selectedIds is derived from `selected`; depending on it would refire on each pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
+  const addPerson = (person: any) => {
+    if (!selectedIds.includes(person.id)) {
+      onChange([...(selected || []), { id: person.id, name: person.name }]);
+    }
+    setQuery('');
+    setResults([]);
+  };
+
+  const removePerson = (id: any) => {
+    onChange((selected || []).filter((s: any) => s.id !== id));
+  };
+
+  return (
+    <View style={styles.panelSection}>
+      <Text style={styles.panelSectionTitle}>{label}</Text>
+
+      {(selected || []).length > 0 && (
+        <View style={styles.chipCloud}>
+          {(selected || []).map((person: any) => (
+            <TouchableOpacity
+              key={String(person.id)}
+              style={[styles.chip, styles.chipSelected]}
+              onPress={() => removePerson(person.id)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.chipText, styles.chipTextSelected]}>{person.name}  ✕</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      <TextInput
+        style={styles.panelInput}
+        placeholder={t('filter_search_placeholder')}
+        placeholderTextColor={COLORS.borderDark}
+        value={query}
+        onChangeText={setQuery}
+        autoCorrect={false}
+        autoCapitalize="words"
+      />
+
+      {searching && <Text style={styles.panelHint}>{t('filter_searching')}</Text>}
+      {!searching && query.trim().length >= TYPEAHEAD_MIN_CHARS && results.length === 0 && (
+        <Text style={styles.panelHint}>{t('filter_no_results')}</Text>
+      )}
+
+      {results.map((person: any) => (
+        <TouchableOpacity
+          key={String(person.id)}
+          style={styles.typeaheadResult}
+          onPress={() => addPerson(person)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.typeaheadResultName}>{person.name}</Text>
+          {person.movie_count != null && (
+            <Text style={styles.typeaheadResultMeta}>
+              {t('filter_movie_count', { count: person.movie_count })}
+            </Text>
+          )}
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
+
+// Slide-in side panel hosting the Story 3 filters (providers / language / country
+// / cast / directors). Values are staged in FiltersContext and only sent when the
+// user fires the existing "Request New Movies" / selection flow.
+const FilterPanel = ({ visible, onClose, onApply }: any) => {
+  const { t } = useTranslation();
+  const { providers, countries, languages } = useContext(FilterOptionsContext);
+  const {
+    selectedProviders, setSelectedProviders,
+    selectedLanguages, setSelectedLanguages,
+    selectedCountry, setSelectedCountry,
+    selectedActors, setSelectedActors,
+    selectedDirectors, setSelectedDirectors,
+  } = useContext(FiltersContext);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.panelOverlay}>
+        <Pressable style={styles.panelScrim} onPress={onClose} />
+        <View style={styles.panelSheet}>
+          <View style={styles.panelHeader}>
+            <Text style={styles.panelTitle}>{t('filters_panel_title')}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={10}>
+              <Text style={styles.panelClose}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.panelBody} contentContainerStyle={styles.panelBodyContent}>
+            <View style={styles.panelSection}>
+              <CinemaMultiSelectModal
+                label={t('filter_providers')}
+                options={providers}
+                selectedValues={selectedProviders}
+                getValue={(p: any) => p.id}
+                getLabel={(p: any) => p.name}
+                onChange={setSelectedProviders}
+              />
+            </View>
+            <View style={styles.panelSection}>
+              <CinemaMultiSelectModal
+                label={t('filter_language')}
+                options={languages}
+                selectedValues={selectedLanguages}
+                getValue={(l: any) => l.code}
+                getLabel={(l: any) => l.native_name || l.english_name || l.code}
+                onChange={setSelectedLanguages}
+              />
+            </View>
+            <PanelSingleSelect
+              label={t('filter_country')}
+              options={countries}
+              selectedValue={selectedCountry}
+              getValue={(c: any) => c.code}
+              getLabel={(c: any) => c.name}
+              onChange={setSelectedCountry}
+            />
+            <PanelTypeahead
+              label={t('filter_actors')}
+              selected={selectedActors}
+              onChange={setSelectedActors}
+              endpoint="/details/searchActor"
+              selectedParam="actors_selected"
+            />
+            <PanelTypeahead
+              label={t('filter_directors')}
+              selected={selectedDirectors}
+              onChange={setSelectedDirectors}
+              endpoint="/details/searchDirector"
+              selectedParam="directors_selected"
+            />
+          </ScrollView>
+
+          <View style={styles.panelFooter}>
+            <CinemaButton title={t('filter_apply')} onPress={onApply} />
+          </View>
+        </View>
+      </View>
+    </Modal>
   );
 };
 
@@ -399,12 +725,38 @@ function SelectionScreen({ navigation }: any) {
   const { vector, setVector, clearVector } = useContext(VectorContext);
   const { genresList } = useContext(GenresListContext);
   const { genres } = useContext(GenresContext);
-  const { selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear } = useContext(FiltersContext);
+  const {
+    selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear,
+    selectedProviders, selectedLanguages, selectedCountry,
+    setSelectedProviders, setSelectedLanguages, setSelectedCountry,
+    selectedActors, setSelectedActors, selectedDirectors, setSelectedDirectors,
+  } = useContext(FiltersContext);
+  const { region } = useContext(LocaleContext);
   const { t } = useTranslation();
+
+  // ISO country sent to the backend for provider availability. The panel's
+  // explicit country selection wins; otherwise fall back to the detected region,
+  // then to the default.
+  const countryCode = selectedCountry || region || DEFAULT_COUNTRY_CODE;
+
+  // Ids extracted from the {id,name} actor/director objects for the API.
+  const actorIds = (selectedActors || []).map((a: any) => a.id);
+  const directorIds = (selectedDirectors || []).map((d: any) => d.id);
+
+  // Count of active side-panel filters, shown as a badge on the Filters trigger.
+  // Country only counts when explicitly chosen (the region fallback isn't a user
+  // filter).
+  const extraFilterCount =
+    (selectedProviders || []).length +
+    (selectedLanguages || []).length +
+    (selectedActors || []).length +
+    (selectedDirectors || []).length +
+    (selectedCountry ? 1 : 0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const requestMoviePair = (
@@ -442,6 +794,13 @@ function SelectionScreen({ navigation }: any) {
     params.push(`adult=0`);
     (currentMin) ? params.push(`min_year=${encodeURIComponent(currentMin)}`) : params.push(`min_year=${MIN_YEAR}`);
     (currentMax) ? params.push(`max_year=${encodeURIComponent(currentMax)}`) : params.push(`max_year=${MAX_YEAR}`);
+    params.push(`country_code=${encodeURIComponent(countryCode)}`);
+    // Story 3 side-panel filters. Per the API spec start_movies does NOT accept
+    // original_language, so it is intentionally omitted here (applied on the POST
+    // body only — see requestMoviePostPair).
+    params.push(`providers=${encodeURIComponent('[' + (selectedProviders || []).join(',') + ']')}`);
+    params.push(`actors=${encodeURIComponent('[' + actorIds.join(',') + ']')}`);
+    params.push(`directors=${encodeURIComponent('[' + directorIds.join(',') + ']')}`);
 
     if (params.length > 0) {
       url += '?' + params.join('&');
@@ -482,7 +841,14 @@ function SelectionScreen({ navigation }: any) {
       max_year: currentMax && currentMax.length === 4 ? parseInt(currentMax) : MAX_YEAR,
       genres: genreIds,
       adult: 0,
-      ids: currentIds.filter(Boolean)
+      ids: currentIds.filter(Boolean),
+      country_code: countryCode,
+      // Story 3 side-panel filters. original_language is POST-only (start_movies
+      // GET does not accept it per the API spec).
+      original_language: (selectedLanguages || []) as string[],
+      providers: (selectedProviders || []) as number[],
+      actors: actorIds as number[],
+      directors: directorIds as number[],
     };
     console.log("two_options payload:", JSON.stringify(body));
 
@@ -517,6 +883,19 @@ function SelectionScreen({ navigation }: any) {
     }
   }, [pair.length, isEmpty]);
 
+  // requestMoviePair reads provider/actor/etc straight from the FiltersContext
+  // closure, so a reset that clears them and requests in the same render would
+  // fire with stale values. This flag defers the request to the next render,
+  // after the cleared values have landed.
+  const [pendingResetRequest, setPendingResetRequest] = useState(false);
+  useEffect(() => {
+    if (pendingResetRequest) {
+      setPendingResetRequest(false);
+      requestMoviePair(selectedGenres, minYear, maxYear, true, []);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingResetRequest]);
+
   // 3. Filter handlers just stage values — request fires on "Request New Movies"
   const handleGenresChange = (vals: string[] | null) => setSelectedGenres(vals);
   const handleMinYearChange = (val: string) => {
@@ -531,27 +910,46 @@ function SelectionScreen({ navigation }: any) {
   const handleRequestNewMovies = () => {
     clearStack();
     clearVector();
-    requestMoviePair(selectedGenres, minYear, maxYear, true, []);
+    // "Start Over" clears the extra side-panel filters (keeps genre + year), then
+    // refetches. Deferred via the pending flag so the request sees the cleared
+    // values rather than the stale closure (same pattern as Reset Filters).
+    clearExtraFilters();
+    setPendingResetRequest(true);
   };
 
-  // No-results recovery actions.
-  // NOTE: per spec, "Reset Filters" should clear only the extra director/actor/
-  // language/country filters (keeping genre + years). Those filters are Story 3
-  // (backend-blocked, not built yet), so today this resets the only filters that
-  // exist — genre + year range. Narrow this once Story 3 lands.
+  // Clears ONLY the Story 3 side-panel filters (providers / language / country /
+  // cast / directors), leaving genre + year range intact. Country resets to ''
+  // so it falls back to the detected region again.
+  const clearExtraFilters = () => {
+    setSelectedProviders([]);
+    setSelectedLanguages([]);
+    setSelectedCountry('');
+    setSelectedActors([]);
+    setSelectedDirectors([]);
+  };
+
+  // No-results recovery action. Per spec, "Reset Filters" clears only the extra
+  // director/actor/language/country/provider filters (keeping genre + years),
+  // then re-requests with the surviving genre + year staging.
   const handleResetFilters = () => {
-    const defMin = MIN_YEAR.toString();
-    const defMax = MAX_YEAR.toString();
-    setSelectedGenres(null);
-    setMinYear(defMin);
-    setMaxYear(defMax);
+    clearExtraFilters();
     clearStack();
     clearVector();
-    requestMoviePair(null, defMin, defMax, true, []);
+    setPendingResetRequest(true);
   };
 
   const handleAdjustFilters = () => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  // Side-panel "Apply": closes the drawer and immediately fetches a fresh pair
+  // using the current filters (incl. the just-set provider/cast/etc selections).
+  // Dismissing via the scrim or ✕ only closes — it does not fetch.
+  const handleApplyFilters = () => {
+    setIsPanelOpen(false);
+    clearStack();
+    clearVector();
+    requestMoviePair(selectedGenres, minYear, maxYear, true, []);
   };
 
   // 4. Selection Logic (Vector Math happens here)
@@ -644,6 +1042,23 @@ function SelectionScreen({ navigation }: any) {
           />
         </View>
 
+        <View style={styles.filtersTriggerRow}>
+          <TouchableOpacity
+            style={styles.filtersTrigger}
+            onPress={() => setIsPanelOpen(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.filtersTriggerText}>▤  {t('filters_open')}</Text>
+            {extraFilterCount > 0 && (
+              <View style={styles.filtersBadge}>
+                <Text style={styles.filtersBadgeText}>{extraFilterCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <FilterPanel visible={isPanelOpen} onClose={() => setIsPanelOpen(false)} onApply={handleApplyFilters} />
+
         {showEmpty ? (
           <View style={styles.emptyState}>
             <MarqueeHeader text={t('empty_title')} variant="blue" />
@@ -703,7 +1118,11 @@ function DetailsScreen({ route, navigation }: any) {
   const { stack, clearStack, removeFromStack } = useContext(StackContext);
   const { clearPair } = useContext(PairContext);
   const { clearVector } = useContext(VectorContext);
-  const { setSelectedGenres, setMinYear, setMaxYear } = useContext(FiltersContext);
+  const {
+    setSelectedGenres, setMinYear, setMaxYear,
+    setSelectedProviders, setSelectedLanguages, setSelectedCountry,
+    setSelectedActors, setSelectedDirectors,
+  } = useContext(FiltersContext);
   const { t } = useTranslation();
   const { movie } = route.params || {};
 
@@ -713,6 +1132,12 @@ function DetailsScreen({ route, navigation }: any) {
     setSelectedGenres(null);
     setMinYear(MIN_YEAR.toString());
     setMaxYear(MAX_YEAR.toString());
+    // Start Over also clears the extra side-panel filters.
+    setSelectedProviders([]);
+    setSelectedLanguages([]);
+    setSelectedCountry('');
+    setSelectedActors([]);
+    setSelectedDirectors([]);
     clearPair();
     navigation.popToTop();
   };
@@ -764,6 +1189,7 @@ function DetailsScreen({ route, navigation }: any) {
                 {movie.overview || t('no_overview')}
               </Text>
             </View>
+            <TrailerPlayer url={movie.trailer_path} />
           </View>
         ) : (<Text style={styles.subText}>{t('no_details')}</Text>)}
         {stack.length > 0 && (
@@ -835,6 +1261,19 @@ function App(): React.JSX.Element {
   const [minYear, setMinYear] = useState(MIN_YEAR.toString());
   const [maxYear, setMaxYear] = useState(MAX_YEAR.toString());
 
+  // Story 3 side-panel filter state. Actors/directors hold {id, name} objects so
+  // chips can show names while only ids are sent to the API.
+  const [selectedProviders, setSelectedProviders] = useState<number[]>([]);
+  const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [selectedActors, setSelectedActors] = useState<any[]>([]);
+  const [selectedDirectors, setSelectedDirectors] = useState<any[]>([]);
+
+  // Lookup lists for the side panel, fetched once on mount.
+  const [providerOptions, setProviderOptions] = useState<any[]>([]);
+  const [countryOptions, setCountryOptions] = useState<any[]>([]);
+  const [languageOptions, setLanguageOptions] = useState<any[]>([]);
+
   // Re-detected each launch (no persistence). `region` is reserved for the
   // streaming-providers row once the backend exposes provider data.
   const { t } = useTranslation();
@@ -888,6 +1327,23 @@ function App(): React.JSX.Element {
       .catch(err => console.error("Could not fetch genres", err));
   }, []);
 
+  // Fetch the side-panel lookup lists once on mount. NOTE: the languages endpoint
+  // path is the backend's misspelling "lenguages" (intentional, not a typo here).
+  useEffect(() => {
+    const loadList = (path: string, setter: (v: any[]) => void, label: string) => {
+      fetch(`${localTest}${path}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      })
+        .then(res => res.json())
+        .then(json => setter(Array.isArray(json) ? json : (json?.data || [])))
+        .catch(err => console.error(`Could not fetch ${label}`, err));
+    };
+    loadList('/details/providers', setProviderOptions, 'providers');
+    loadList('/details/countries', setCountryOptions, 'countries');
+    loadList('/details/lenguages', setLanguageOptions, 'languages');
+  }, []);
+
   if (showSplash) {
     return (
       <View style={styles.splashContainer}>
@@ -906,7 +1362,15 @@ function App(): React.JSX.Element {
       <GenresContext.Provider value={{ genres, setGenres }}>
         <GenresListContext.Provider value={{ genresList, setGenresList }}>
           <VectorContext.Provider value={{ vector, setVector, clearVector }}>
-            <FiltersContext.Provider value={{ selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear }}>
+            <FiltersContext.Provider value={{
+              selectedGenres, setSelectedGenres, minYear, setMinYear, maxYear, setMaxYear,
+              selectedProviders, setSelectedProviders,
+              selectedLanguages, setSelectedLanguages,
+              selectedCountry, setSelectedCountry,
+              selectedActors, setSelectedActors,
+              selectedDirectors, setSelectedDirectors,
+            }}>
+            <FilterOptionsContext.Provider value={{ providers: providerOptions, countries: countryOptions, languages: languageOptions }}>
             <StackContext.Provider value={{ stack, pushToStack, removeFromStack, clearStack }}>
               <PairContext.Provider value={{ pair, setPair, clearPair }}>
                 <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
@@ -926,6 +1390,7 @@ function App(): React.JSX.Element {
                 </NavigationContainer>
               </PairContext.Provider>
             </StackContext.Provider>
+            </FilterOptionsContext.Provider>
             </FiltersContext.Provider>
           </VectorContext.Provider>
         </GenresListContext.Provider>
@@ -979,6 +1444,53 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  trailerSection: {
+    width: '90%',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  trailerHeading: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 16,
+    color: COLORS.gold,
+    letterSpacing: 2,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  trailerFrame: {
+    width: '100%',
+    maxWidth: 380,
+    aspectRatio: 16 / 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+    backgroundColor: COLORS.darkBlue,
+    overflow: 'hidden',
+  },
+  trailerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    maxWidth: 380,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.primaryRed,
+    backgroundColor: COLORS.cardBg,
+  },
+  trailerPlayGlyph: {
+    color: COLORS.primaryRed,
+    fontSize: 18,
+    marginRight: 10,
+  },
+  trailerButtonText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 15,
+    color: COLORS.textLight,
+    letterSpacing: 1,
   },
   splashIcon: {
     width: 220,
@@ -1440,6 +1952,165 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 18,
     letterSpacing: 1.5,
+  },
+
+  // --- FILTER SIDE PANEL ---
+  filtersTriggerRow: {
+    width: '100%',
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  filtersTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+    borderRadius: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  filtersTriggerText: {
+    fontFamily: 'Limelight-Regular',
+    color: COLORS.blue,
+    fontSize: 16,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  filtersBadge: {
+    marginLeft: 8,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: COLORS.primaryRed,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filtersBadgeText: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.textLight,
+    fontSize: 12,
+    lineHeight: 16,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  panelOverlay: {
+    flex: 1,
+    // row-reverse puts the sheet (2nd child) on the LEFT and the scrim on the right.
+    flexDirection: 'row-reverse',
+  },
+  panelScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  panelSheet: {
+    width: '85%',
+    maxWidth: 420,
+    height: '100%',
+    backgroundColor: COLORS.background,
+    borderRightWidth: 1,
+    borderRightColor: COLORS.gold,
+    paddingTop: 40,
+  },
+  panelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderDark,
+  },
+  panelTitle: {
+    fontFamily: 'Limelight-Regular',
+    color: COLORS.gold,
+    fontSize: 20,
+    lineHeight: 24,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    flexShrink: 1,
+  },
+  panelClose: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.gold,
+    fontSize: 22,
+    lineHeight: 26,
+    includeFontPadding: false,
+    paddingHorizontal: 6,
+  },
+  panelBody: {
+    flex: 1,
+  },
+  panelBodyContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
+  panelSection: {
+    marginBottom: 22,
+  },
+  panelSectionTitle: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.textLight,
+    fontSize: 15,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  panelInput: {
+    backgroundColor: COLORS.cardBg,
+    borderWidth: 1,
+    borderColor: COLORS.gold,
+    borderRadius: 4,
+    color: COLORS.textLight,
+    fontFamily: 'Oswald-Bold',
+    fontSize: 15,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  panelHint: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.borderDark,
+    fontSize: 13,
+    lineHeight: 18,
+    includeFontPadding: false,
+    marginTop: 8,
+  },
+  typeaheadResult: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderDark,
+  },
+  typeaheadResultName: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.gold,
+    fontSize: 15,
+    lineHeight: 20,
+    includeFontPadding: false,
+    flexShrink: 1,
+  },
+  typeaheadResultMeta: {
+    fontFamily: 'Oswald-Bold',
+    color: COLORS.blue,
+    fontSize: 12,
+    lineHeight: 16,
+    includeFontPadding: false,
+    marginLeft: 8,
+  },
+  panelFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderDark,
+    alignItems: 'center',
   },
 });
 

@@ -42,5 +42,22 @@
   "no_details": "No hay detalles de la película disponibles.",
   "back_to_selection": "Volver a la selección",
 
+  "trailer_heading": "TRÁILER",
+  "watch_trailer": "Ver Tráiler",
+
+  "filters_open": "Filtros",
+  "filters_panel_title": "AFINA EL ROLLO",
+  "filter_providers": "Plataformas",
+  "filter_language": "Idioma original",
+  "filter_country": "País",
+  "filter_actors": "Reparto",
+  "filter_directors": "Directores",
+  "filter_search_placeholder": "Escribe un nombre...",
+  "filter_no_results": "Sin coincidencias.",
+  "filter_searching": "Buscando...",
+  "filter_apply": "Aplicar filtros",
+  "filter_movie_count": "{{count}} películas",
+  "filters_reset_extra": "Limpiar filtros extra",
+
   "language_name": "Español"
 }

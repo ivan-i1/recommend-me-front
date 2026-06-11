@@ -42,5 +42,22 @@
   "no_details": "No movie details available.",
   "back_to_selection": "Back to Selection",
 
+  "trailer_heading": "TRAILER",
+  "watch_trailer": "Watch Trailer",
+
+  "filters_open": "Filters",
+  "filters_panel_title": "REFINE THE REEL",
+  "filter_providers": "Streaming",
+  "filter_language": "Original Language",
+  "filter_country": "Country",
+  "filter_actors": "Cast",
+  "filter_directors": "Directors",
+  "filter_search_placeholder": "Type a name...",
+  "filter_no_results": "No matches found.",
+  "filter_searching": "Searching...",
+  "filter_apply": "Apply Filters",
+  "filter_movie_count": "{{count}} films",
+  "filters_reset_extra": "Clear Extra Filters",
+
   "language_name": "English"
 }

@@ -48,7 +48,7 @@ module.exports = {
     proxy: [
       {
         context: ['/details', '/movies'], // Which paths to intercept
-        target: 'http://188.166.155.92:8000', // Where to send them
+        target: 'http://188.166.155.92', // Where to send them
         changeOrigin: true,
       },
     ],
