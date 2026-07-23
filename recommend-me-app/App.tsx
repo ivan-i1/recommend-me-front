@@ -4,8 +4,8 @@
  *
  * @format
  */
-import React, { useState, useContext, createContext, useEffect, useRef, use } from 'react';
-import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable, Linking, TextInput } from 'react-native';
+import React, { useState, useContext, createContext, useEffect, useRef, useMemo, use } from 'react';
+import { View, Text, Image, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable, TextInput, Animated, Dimensions } from 'react-native';
 import { NavigationContainer, DefaultTheme, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +13,9 @@ import { Platform } from 'react-native';
 import { Shadow } from 'react-native-shadow-2';
 import { useTranslation } from 'react-i18next';
 import i18n, { detectLanguage, detectRegion } from './src/i18n';
+import { COLORS } from './src/theme';
+import { extractYouTubeId } from './src/youtube';
+import TrailerPlayer from './src/TrailerPlayer';
 
 const localTest = Platform.OS === 'web'
   ? ''
@@ -125,6 +128,26 @@ function countExtraFilters(filters: {
   );
 }
 
+// Emoji for each genre so the filter chips are easier to scan. Keyed by lowercase
+// TMDB genre name; unknown genres fall back to a clapperboard.
+const GENRE_ICONS: { [k: string]: string } = {
+  action: '💥', adventure: '🧭', animation: '🎨', comedy: '😂', crime: '🔫',
+  documentary: '🎥', drama: '🎭', family: '👨‍👩‍👧', fantasy: '🐉', history: '📜',
+  horror: '👻', music: '🎵', mystery: '🕵️', romance: '❤️', 'science fiction': '🚀',
+  'sci-fi': '🚀', 'tv movie': '📺', thriller: '🔪', war: '⚔️', western: '🤠',
+};
+const genreIcon = (name: any): string => GENRE_ICONS[String(name || '').toLowerCase()] || '🎬';
+
+// Flag emoji from an ISO 3166-1 alpha-2 country code (regional indicator letters).
+// Renders as a flag on iOS/Android; some platforms (e.g. desktop Chrome) show the
+// two letters instead, which is still a fine label prefix.
+const flagEmoji = (code: any): string => {
+  const cc = String(code || '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(cc)) return '🏳️';
+  const A = 0x1f1e6;
+  return String.fromCodePoint(A + cc.charCodeAt(0) - 65) + String.fromCodePoint(A + cc.charCodeAt(1) - 65);
+};
+
 // --- CUSTOM COMPONENTS ---
 const CinemaButton = ({ title, onPress, type = 'primary', width }: any) => {
   const isPrimary = type === 'primary';
@@ -208,55 +231,6 @@ const MarqueeHeader = ({
     </View>
   );
 };
-
-// Pulls the 11-char YouTube video id out of watch?v=, youtu.be/, or /embed/ urls.
-function extractYouTubeId(url: any): string | null {
-  if (!url || typeof url !== 'string') return null;
-  const patterns = [
-    /[?&]v=([A-Za-z0-9_-]{11})/,       // https://www.youtube.com/watch?v=ID
-    /youtu\.be\/([A-Za-z0-9_-]{11})/,  // https://youtu.be/ID
-    /\/embed\/([A-Za-z0-9_-]{11})/,    // https://www.youtube.com/embed/ID
-  ];
-  for (const re of patterns) {
-    const m = url.match(re);
-    if (m) return m[1];
-  }
-  return null;
-}
-
-function TrailerPlayer({ url }: { url: string }) {
-  const { t } = useTranslation();
-  const videoId = extractYouTubeId(url);
-  if (!videoId) return null;
-
-  return (
-    <View style={styles.trailerSection}>
-      <Text style={styles.trailerHeading}>{t('trailer_heading')}</Text>
-      {Platform.OS === 'web' ? (
-        <View style={styles.trailerFrame}>
-          {React.createElement('iframe', {
-            src: `https://www.youtube.com/embed/${videoId}`,
-            width: '100%',
-            height: '100%',
-            frameBorder: '0',
-            allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
-            allowFullScreen: true,
-            style: { border: 0, borderRadius: 8 },
-          })}
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.trailerButton}
-          onPress={() => Linking.openURL(url)}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.trailerPlayGlyph}>▶</Text>
-          <Text style={styles.trailerButtonText}>{t('watch_trailer')}</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
 
 const LANGUAGE_OPTIONS: { code: string; label: string }[] = [
   { code: 'en', label: 'English' },
@@ -352,6 +326,25 @@ function RecommendationsTrigger() {
   );
 }
 
+// Nav-bar magnifying-glass that opens the dedicated Search screen. Sits in
+// headerLeft, to the right of the filter icon and left of the centered title.
+// Replaces the old on-screen search box so the selection screen fits one screen.
+function SearchTrigger() {
+  const navigation = useNavigation<any>();
+  const { t } = useTranslation();
+  return (
+    <TouchableOpacity
+      onPress={() => navigation.navigate('SearchResults', { query: '', mode: 'movie' })}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      style={styles.langTrigger}
+      activeOpacity={0.7}
+      accessibilityLabel={t('search_placeholder')}
+    >
+      <Text style={styles.langTriggerText}>🔍</Text>
+    </TouchableOpacity>
+  );
+}
+
 function MovieCard({ movieData }: { movieData: any }) {
   const { t } = useTranslation();
   const [posterWidth, setPosterWidth] = useState<number>(0);
@@ -382,6 +375,19 @@ function MovieCard({ movieData }: { movieData: any }) {
   );
 }
 
+// Leading chip logo that falls back to a 📺 glyph when the image is missing or
+// fails to load. (The backend's provider logo_urls currently 404, so this shows
+// 📺 for now; real logos appear automatically once the backend serves them.)
+function ChipLogo({ uri, fallback = '📺' }: any) {
+  const [failed, setFailed] = useState(false);
+  if (!uri || failed) {
+    return <Text style={styles.chipIconFallback}>{fallback}</Text>;
+  }
+  return (
+    <Image source={{ uri }} style={styles.chipIcon} resizeMode="contain" onError={() => setFailed(true)} />
+  );
+}
+
 // Genre-style chip-cloud multi-select. `selectedValues` uses the "all" sentinel:
 // null = all selected, [] = none, non-empty array = explicit subset.
 // `getValue`/`getLabel` default to identity so plain-string usage (genres) keeps
@@ -393,6 +399,7 @@ const CinemaMultiSelectModal = ({
   onChange,
   getValue = (o: any) => o,
   getLabel = (o: any) => o,
+  getImage = (_o: any) => null, // optional leading logo URL per chip (e.g. providers)
 }: any) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -460,6 +467,7 @@ const CinemaMultiSelectModal = ({
             <ScrollView style={styles.modalList} contentContainerStyle={styles.chipCloud}>
               {options.map((opt: any) => {
                 const checked = isChecked(opt);
+                const img = getImage(opt);
                 return (
                   <TouchableOpacity
                     key={String(getValue(opt))}
@@ -467,6 +475,7 @@ const CinemaMultiSelectModal = ({
                     onPress={() => toggle(opt)}
                     activeOpacity={0.7}
                   >
+                    {img ? <ChipLogo uri={img} /> : null}
                     <Text style={[styles.chipText, checked ? styles.chipTextSelected : styles.chipTextUnselected]}>
                       {getLabel(opt)}
                     </Text>
@@ -493,6 +502,138 @@ const CinemaMultiSelectModal = ({
 };
 
 // --- FILTER SIDE PANEL HELPERS ---
+
+// Each filter category below opens its OWN popup, all built on the same template
+// as CinemaMultiSelectModal: a `dropdownHeader` trigger row showing the current
+// value, and a fade Modal with a `modalCard` body and a `modalActions` footer
+// (the "min/max" select helpers where relevant, plus Done).
+
+// Year range in a single popup named "Year": both scroll wheels (min + max)
+// side by side + Done. The wheels stay scrollable.
+const CinemaYearRangeModal = ({ label, minYear, maxYear, min, max, onChangeMin, onChangeMax }: any) => {
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
+  const rangeText = `${minYear || '—'}–${maxYear || '—'}`;
+  return (
+    <View style={styles.genreTriggerWrap}>
+      <TouchableOpacity style={styles.dropdownHeader} onPress={() => setIsOpen(true)} activeOpacity={0.8}>
+        <Text style={styles.dropdownHeaderText}>
+          <Text style={{ fontFamily: 'Oswald-Bold' }}>{label}: </Text>
+          {rangeText} ▼
+        </Text>
+      </TouchableOpacity>
+      <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            <View style={styles.filtersContainerBottom}>
+              <CinemaYearWheel label={t('filter_min_year')} value={minYear} min={min} max={max} onChange={onChangeMin} />
+              <CinemaYearWheel label={t('filter_max_year')} value={maxYear} min={min} max={max} onChange={onChangeMax} />
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => setIsOpen(false)}>
+                <Text style={[styles.modalAction, { color: COLORS.gold }]}>{t('filter_done')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+// Single-select lookup (Country) in its own popup: chips + Clear (the "min"
+// helper, back to no selection) + Done.
+const CinemaSingleSelectModal = ({ label, options, selectedValue, getValue, getLabel, onChange }: any) => {
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedOpt = options.find((o: any) => getValue(o) === selectedValue);
+  const valueText = selectedValue && selectedOpt ? getLabel(selectedOpt) : `${t('filter_any')} ▼`;
+  return (
+    <View style={styles.genreTriggerWrap}>
+      <TouchableOpacity style={styles.dropdownHeader} onPress={() => setIsOpen(true)} activeOpacity={0.8}>
+        <Text style={styles.dropdownHeaderText}>
+          <Text style={{ fontFamily: 'Oswald-Bold' }}>{label}: </Text>
+          {valueText}
+        </Text>
+      </TouchableOpacity>
+      <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            <ScrollView style={styles.modalList} contentContainerStyle={styles.chipCloud}>
+              {options.map((opt: any) => {
+                const checked = getValue(opt) === selectedValue;
+                return (
+                  <TouchableOpacity
+                    key={String(getValue(opt))}
+                    style={[styles.chip, checked ? styles.chipSelected : styles.chipUnselected]}
+                    onPress={() => onChange(getValue(opt))}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.chipText, checked ? styles.chipTextSelected : styles.chipTextUnselected]}>
+                      {getLabel(opt)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => onChange('')}>
+                <Text style={[styles.modalAction, { color: COLORS.primaryRed }]}>{t('filter_deselect_all')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setIsOpen(false)}>
+                <Text style={[styles.modalAction, { color: COLORS.gold }]}>{t('filter_done')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+// Cast / Directors typeahead in its own popup: the existing typeahead body +
+// Clear All (min) + Done.
+const CinemaTypeaheadModal = ({ label, selected, onChange, endpoint, selectedParam }: any) => {
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
+  const count = (selected || []).length;
+  const valueText = count === 0 ? `${t('filter_any')} ▼` : t('filter_selected', { count });
+  return (
+    <View style={styles.genreTriggerWrap}>
+      <TouchableOpacity style={styles.dropdownHeader} onPress={() => setIsOpen(true)} activeOpacity={0.8}>
+        <Text style={styles.dropdownHeaderText}>
+          <Text style={{ fontFamily: 'Oswald-Bold' }}>{label}: </Text>
+          {valueText}
+        </Text>
+      </TouchableOpacity>
+      <Modal visible={isOpen} transparent animationType="fade" onRequestClose={() => setIsOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            <PanelTypeahead
+              label={label}
+              selected={selected}
+              onChange={onChange}
+              endpoint={endpoint}
+              selectedParam={selectedParam}
+              inModal
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => onChange([])}>
+                <Text style={[styles.modalAction, { color: COLORS.primaryRed }]}>{t('filter_deselect_all')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setIsOpen(false)}>
+                <Text style={[styles.modalAction, { color: COLORS.gold }]}>{t('filter_done')}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
 
 // Single-select for lookup lists (used by Country).
 const PanelSingleSelect = ({ label, options, selectedValue, getValue, getLabel, onChange }: any) => {
@@ -531,7 +672,7 @@ const TYPEAHEAD_MAX_RESULTS = 8;
 // is an array of {id, name}; only ids are sent to the search endpoint and (later)
 // to the movie request. `endpoint` is the search path; `selectedParam` is the
 // query-string key that carries already-selected ids back to the server.
-const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam }: any) => {
+const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam, inModal }: any) => {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<any[]>([]);
@@ -583,7 +724,7 @@ const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam }: 
 
   return (
     <View style={styles.panelSection}>
-      <Text style={styles.panelSectionTitle}>{label}</Text>
+      {!inModal && <Text style={styles.panelSectionTitle}>{label}</Text>}
 
       {(selected || []).length > 0 && (
         <View style={styles.chipCloud}>
@@ -638,7 +779,7 @@ const PanelTypeahead = ({ label, selected, onChange, endpoint, selectedParam }: 
 // / cast / directors). Mirrors LanguageSwitcher's modalBackdrop + anchored card
 // pattern: a fade Modal with a backdrop Pressable that closes on outside tap.
 // Values are staged in FiltersContext; only the bottom Apply button refetches.
-const FilterMenu = ({ visible, onClose, onApply }: any) => {
+export const FilterMenu = ({ visible, onClose, onApply }: any) => {
   const { t } = useTranslation();
   const { providers, countries, languages } = useContext(FilterOptionsContext);
   const { genresList } = useContext(GenresListContext);
@@ -675,29 +816,26 @@ const FilterMenu = ({ visible, onClose, onApply }: any) => {
             </TouchableOpacity>
           </View>
 
+          {/* Every category is its own popup row (same template throughout). */}
           <ScrollView style={styles.panelBody} contentContainerStyle={styles.panelBodyContent}>
             <View style={styles.panelSection}>
               <CinemaMultiSelectModal
                 label={t('filter_genre')}
                 options={genresList.length > 0 ? genresList : [t('loading_short')]}
                 selectedValues={selectedGenres}
+                getLabel={(g: any) => `${genreIcon(g)}  ${g}`}
                 onChange={setSelectedGenres}
               />
             </View>
-            <View style={styles.filtersContainerBottom}>
-              <CinemaYearWheel
-                label={t('filter_min_year')}
-                value={minYear}
+            <View style={styles.panelSection}>
+              <CinemaYearRangeModal
+                label={t('filter_year')}
+                minYear={minYear}
+                maxYear={maxYear}
                 min={1950}
                 max={MAX_YEAR}
-                onChange={handleMinYearChange}
-              />
-              <CinemaYearWheel
-                label={t('filter_max_year')}
-                value={maxYear}
-                min={1950}
-                max={MAX_YEAR}
-                onChange={handleMaxYearChange}
+                onChangeMin={handleMinYearChange}
+                onChangeMax={handleMaxYearChange}
               />
             </View>
             <View style={styles.panelSection}>
@@ -707,6 +845,7 @@ const FilterMenu = ({ visible, onClose, onApply }: any) => {
                 selectedValues={selectedProviders}
                 getValue={(p: any) => p.id}
                 getLabel={(p: any) => p.name}
+                getImage={(p: any) => p.logo_url || null}
                 onChange={setSelectedProviders}
               />
             </View>
@@ -720,28 +859,34 @@ const FilterMenu = ({ visible, onClose, onApply }: any) => {
                 onChange={setSelectedLanguages}
               />
             </View>
-            <PanelSingleSelect
-              label={t('filter_country')}
-              options={countries}
-              selectedValue={selectedCountry}
-              getValue={(c: any) => c.code}
-              getLabel={(c: any) => c.name}
-              onChange={setSelectedCountry}
-            />
-            <PanelTypeahead
-              label={t('filter_actors')}
-              selected={selectedActors}
-              onChange={setSelectedActors}
-              endpoint="/details/searchActor"
-              selectedParam="actors_selected"
-            />
-            <PanelTypeahead
-              label={t('filter_directors')}
-              selected={selectedDirectors}
-              onChange={setSelectedDirectors}
-              endpoint="/details/searchDirector"
-              selectedParam="directors_selected"
-            />
+            <View style={styles.panelSection}>
+              <CinemaSingleSelectModal
+                label={t('filter_country')}
+                options={countries}
+                selectedValue={selectedCountry}
+                getValue={(c: any) => c.code}
+                getLabel={(c: any) => `${flagEmoji(c.code)}  ${c.name}`}
+                onChange={setSelectedCountry}
+              />
+            </View>
+            <View style={styles.panelSection}>
+              <CinemaTypeaheadModal
+                label={t('filter_actors')}
+                selected={selectedActors}
+                onChange={setSelectedActors}
+                endpoint="/details/searchActor"
+                selectedParam="actors_selected"
+              />
+            </View>
+            <View style={styles.panelSection}>
+              <CinemaTypeaheadModal
+                label={t('filter_directors')}
+                selected={selectedDirectors}
+                onChange={setSelectedDirectors}
+                endpoint="/details/searchDirector"
+                selectedParam="directors_selected"
+              />
+            </View>
           </ScrollView>
 
           <View style={styles.panelFooter}>
@@ -762,34 +907,41 @@ const CinemaYearWheel = ({ label, value, min, max, onChange }: any) => {
   const scrollRef = useRef<ScrollView>(null);
   const hasInitialScrolledRef = useRef(false);
   const lastReportedRef = useRef<string>(value || years[0]);
-  const lastYRef = useRef(0);
-  const settleTimerRef = useRef<any>(null);
+  // Set for one render after THIS wheel reports a change so the effect below does
+  // NOT scroll-correct — re-scrolling would fight the native snap and oscillate.
+  const selfChangeRef = useRef(false);
+  const dragSettleTimerRef = useRef<any>(null);
 
   const targetIndex = Math.max(0, years.indexOf(value));
 
+  // Reflect EXTERNAL value changes (initial value, or the other wheel's auto-clamp)
+  // by scrolling to the year. Skip changes that came from this wheel's own scroll.
   useEffect(() => {
     lastReportedRef.current = value;
+    if (selfChangeRef.current) {
+      selfChangeRef.current = false;
+      return;
+    }
     if (hasInitialScrolledRef.current) {
       scrollRef.current?.scrollTo({ y: targetIndex * WHEEL_ITEM_HEIGHT, animated: true });
     }
   }, [targetIndex, value]);
 
   useEffect(() => () => {
-    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    if (dragSettleTimerRef.current) clearTimeout(dragSettleTimerRef.current);
   }, []);
 
-  const settle = () => {
-    const idx = Math.max(0, Math.min(years.length - 1, Math.round(lastYRef.current / WHEEL_ITEM_HEIGHT)));
+  // Settle to the year nearest the FINAL resting offset, taken straight from the
+  // scroll event (not a throttled mid-flight sample), so the reported year always
+  // matches where the wheel visually snaps.
+  const settleTo = (y: number) => {
+    const idx = Math.max(0, Math.min(years.length - 1, Math.round(y / WHEEL_ITEM_HEIGHT)));
     const selected = years[idx];
     if (selected !== lastReportedRef.current) {
       lastReportedRef.current = selected;
+      selfChangeRef.current = true;
       onChange(selected);
     }
-  };
-
-  const scheduleSettle = () => {
-    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
-    settleTimerRef.current = setTimeout(settle, 80);
   };
 
   return (
@@ -806,10 +958,18 @@ const CinemaYearWheel = ({ label, value, min, max, onChange }: any) => {
           decelerationRate="fast"
           disableIntervalMomentum
           nestedScrollEnabled
-          onScroll={(e) => { lastYRef.current = e.nativeEvent.contentOffset.y; }}
           scrollEventThrottle={16}
-          onMomentumScrollEnd={scheduleSettle}
-          onScrollEndDrag={scheduleSettle}
+          // Drag release with no momentum settles shortly after; if momentum
+          // follows, momentum-begin cancels it and momentum-end settles instead.
+          onScrollEndDrag={(e) => {
+            const y = e.nativeEvent.contentOffset.y;
+            if (dragSettleTimerRef.current) clearTimeout(dragSettleTimerRef.current);
+            dragSettleTimerRef.current = setTimeout(() => settleTo(y), 60);
+          }}
+          onMomentumScrollBegin={() => {
+            if (dragSettleTimerRef.current) clearTimeout(dragSettleTimerRef.current);
+          }}
+          onMomentumScrollEnd={(e) => settleTo(e.nativeEvent.contentOffset.y)}
           onContentSizeChange={() => {
             if (!hasInitialScrolledRef.current) {
               scrollRef.current?.scrollTo({ y: targetIndex * WHEEL_ITEM_HEIGHT, animated: false });
@@ -829,7 +989,239 @@ const CinemaYearWheel = ({ label, value, min, max, onChange }: any) => {
   );
 };
 
-function SelectionScreen({ navigation }: any) {
+const WINDOW_WIDTH = Dimensions.get('window').width || 360;
+const WINDOW_HEIGHT = Dimensions.get('window').height || 720;
+// Definite cap for the filter panel's scroll area. A ScrollView with `flex: 1`
+// collapses to height 0 when its ancestor has no definite height (the card only
+// has maxHeight), which hid all the category rows; a pixel maxHeight lets the
+// body size to its content and scroll only when it overflows.
+const PANEL_BODY_MAX_HEIGHT = Math.round(WINDOW_HEIGHT * 0.62);
+// Constant vertical space reserved for the reel poster so the selection screen
+// fits one screen without scrolling. The poster height is fixed; its width is
+// derived from it (2:3), and content is fit (contain) into that constant space.
+const REEL_POSTER_HEIGHT = Math.round(WINDOW_HEIGHT * 0.46);
+
+// Pure mapping from a horizontal scroll offset to the index of the movie sitting
+// in the spotlight. With symmetric side padding and snapToInterval === itemWidth,
+// movie i is centered when contentOffset.x === i * itemWidth, so we round and
+// clamp. Extracted (and exported) so the carousel's centering math is unit-tested
+// without having to drive real scroll events.
+export function centeredIndexFromOffset(offsetX: number, itemWidth: number, count: number): number {
+  if (!itemWidth || itemWidth <= 0 || !count || count <= 0) return 0;
+  const idx = Math.round(offsetX / itemWidth);
+  return Math.max(0, Math.min(count - 1, idx));
+}
+
+// Positive modulo: maps any (possibly negative or out-of-range) index into
+// [0, count). Used to turn a looping reel's rendered index into the real movie.
+export function wrapIndex(i: number, count: number): number {
+  if (!count || count <= 0) return 0;
+  return ((i % count) + count) % count;
+}
+
+// Maps a raw movie batch into the reel's display shape. Guards against non-array
+// responses: the API returns an error OBJECT (e.g. {"vector":["This list may not
+// be empty."]}) on a bad request, and `pair` is set straight from that JSON — so
+// without this guard `.map` throws and white-screens the whole app on every
+// platform. A non-array simply yields an empty reel (the empty state handles it).
+export function toReelMovies(pair: any): any[] {
+  return (Array.isArray(pair) ? pair : []).map(mapRawMovieForDetails);
+}
+
+// Horizontal snap "reel" that shows one spotlit movie at a time. Movies fade in
+// and out as they pass the center, a vertical triangular spotlight beam switches
+// on when one locks into place, and the reel LOOPS endlessly. Interactions:
+//   - tapping the movie TITLE picks it (onSelect),
+//   - tapping the centered POSTER plays its YouTube trailer in an embedded
+//     miniplayer (only if a trailer exists),
+//   - the Details button opens the full Details screen (onDetails).
+// `movies` are display-shaped objects (mapRawMovieForDetails: name / image /
+// overview / vector / id / trailer_path). `itemWidth` is injectable for tests.
+export function MovieReel({ movies, onSelect, onDetails, itemWidth }: any) {
+  const { t } = useTranslation();
+  const list: any[] = Array.isArray(movies) ? movies : [];
+  const N = list.length;
+  // Width is derived from the constant poster height (2:3) so the reel fits the
+  // reserved space; capped by screen width. `itemWidth` overrides for tests.
+  const ITEM_WIDTH = itemWidth || Math.min(WINDOW_WIDTH * 0.72, REEL_POSTER_HEIGHT / 1.5, 300);
+  const ITEM_HEIGHT = ITEM_WIDTH * 1.5;
+  const sidePad = Math.max(0, (WINDOW_WIDTH - ITEM_WIDTH) / 2);
+
+  // Loop: render three back-to-back copies and keep the user parked in the middle
+  // copy, silently recentering on settle so the reel feels endless. Only loop
+  // when there is more than one movie (a single movie has nothing to loop).
+  const looping = N > 1;
+  const renderList = looping ? [...list, ...list, ...list] : list;
+  const BASE = looping ? N : 0;
+
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<any>(null);
+  const hasInitialScrolledRef = useRef(false);
+  // `renderedIndex` is the index within renderList currently in the spotlight.
+  const [renderedIndex, setRenderedIndex] = useState(BASE);
+  const [trailerOn, setTrailerOn] = useState(false);
+
+  const scrollToOffset = (x: number) => {
+    scrollX.setValue(x);
+    scrollRef.current?.scrollTo?.({ x, animated: false });
+  };
+
+  // Fresh batch arrived: re-park at the middle copy's first item.
+  useEffect(() => {
+    hasInitialScrolledRef.current = false;
+    setRenderedIndex(BASE);
+    setTrailerOn(false);
+    scrollToOffset(BASE * ITEM_WIDTH);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movies]);
+
+  // Close the trailer whenever the spotlight moves to another movie.
+  useEffect(() => { setTrailerOn(false); }, [renderedIndex]);
+
+  const handleMomentumScrollEnd = (e: any) => {
+    const x = e?.nativeEvent?.contentOffset?.x ?? 0;
+    let r = centeredIndexFromOffset(x, ITEM_WIDTH, renderList.length);
+    // Drifted into an outer copy — jump back to the matching middle slot so the
+    // reel can keep scrolling either way without ever hitting an edge.
+    if (looping && (r < N || r >= 2 * N)) {
+      r = N + wrapIndex(r, N);
+      scrollToOffset(r * ITEM_WIDTH);
+    }
+    setRenderedIndex(r);
+  };
+
+  const realIndex = looping ? wrapIndex(renderedIndex, N) : Math.min(renderedIndex, Math.max(0, N - 1));
+  const centered = list[realIndex];
+  const centeredHasTrailer = !!extractYouTubeId(centered?.trailer_path);
+
+  // Vertical triangular spotlight beam: narrow apex at the top, widening down
+  // over the centered poster. Lights up when a poster is LOCKED on a snap point
+  // and switches off while sliding between posters. Driven off the live scroll
+  // *phase* (offset within one item, via Animated.modulo) rather than the
+  // last-settled `renderedIndex`, so the poster currently under the beam lights
+  // immediately — it does not wait for the momentum-end that updates the index.
+  const spotlightOpacity = Animated.modulo(scrollX, ITEM_WIDTH).interpolate({
+    inputRange: [0, ITEM_WIDTH / 2, ITEM_WIDTH],
+    outputRange: [0.55, 0, 0.55],
+    extrapolate: 'clamp',
+  });
+  const beamHalfWidth = ITEM_WIDTH * 0.62;
+  const beamHeight = ITEM_HEIGHT;
+
+  return (
+    <View style={styles.reelWrap}>
+      {/* Title — tap to PICK this movie. */}
+      <TouchableOpacity
+        testID="reel-title-select"
+        onPress={() => onSelect?.(centered)}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.reelTitle} testID="reel-title" numberOfLines={2} adjustsFontSizeToFit>
+          {centered?.name || ''}
+        </Text>
+      </TouchableOpacity>
+
+      <View style={[styles.reelStage, { height: ITEM_HEIGHT }]}>
+        <Animated.View
+          testID="reel-spotlight"
+          pointerEvents="none"
+          style={[
+            styles.reelSpotlight,
+            {
+              opacity: spotlightOpacity,
+              borderLeftWidth: beamHalfWidth,
+              borderRightWidth: beamHalfWidth,
+              borderBottomWidth: beamHeight,
+            },
+          ]}
+        />
+
+        <Animated.ScrollView
+          testID="reel-scroll"
+          ref={scrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={ITEM_WIDTH}
+          decelerationRate="fast"
+          disableIntervalMomentum
+          contentContainerStyle={{ paddingHorizontal: sidePad }}
+          scrollEventThrottle={16}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+            { useNativeDriver: false },
+          )}
+          onMomentumScrollEnd={handleMomentumScrollEnd}
+          onContentSizeChange={() => {
+            if (!hasInitialScrolledRef.current) {
+              scrollToOffset(BASE * ITEM_WIDTH);
+              hasInitialScrolledRef.current = true;
+            }
+          }}
+        >
+          {renderList.map((movie: any, index: number) => {
+            const isCentered = index === renderedIndex;
+            const hasTrailer = !!extractYouTubeId(movie?.trailer_path);
+            const opacity = scrollX.interpolate({
+              inputRange: [(index - 1) * ITEM_WIDTH, index * ITEM_WIDTH, (index + 1) * ITEM_WIDTH],
+              outputRange: [0.25, 1, 0.25],
+              extrapolate: 'clamp',
+            });
+            return (
+              <Animated.View
+                key={index}
+                style={[styles.reelItem, { width: ITEM_WIDTH, height: ITEM_HEIGHT, opacity }]}
+              >
+                <TouchableOpacity
+                  testID={`reel-poster-${index}`}
+                  activeOpacity={0.85}
+                  disabled={!isCentered}
+                  onPress={isCentered ? () => { if (hasTrailer) setTrailerOn(true); } : undefined}
+                  style={styles.reelPoster}
+                >
+                  <Image
+                    source={{ uri: movie?.image }}
+                    style={{ width: '100%', height: '100%', borderRadius: 8 }}
+                    resizeMode="contain"
+                  />
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })}
+        </Animated.ScrollView>
+
+        {/* Embedded trailer miniplayer — opened by tapping the centered poster.
+            Rendered as an overlay so the reel keeps its constant size. */}
+        {trailerOn && centeredHasTrailer && (
+          <View style={styles.reelTrailer} testID="reel-trailer">
+            <TrailerPlayer url={centered.trailer_path} />
+            <TouchableOpacity
+              testID="reel-trailer-close"
+              onPress={() => setTrailerOn(false)}
+              style={styles.reelTrailerClose}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={styles.reelTrailerCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      {/* Details — opens the full Details screen. */}
+      <View style={styles.reelDetailWrap}>
+        <TouchableOpacity
+          testID="reel-details"
+          style={styles.reelDetailsBtn}
+          onPress={() => onDetails?.(centered)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.reelDetailsText}>{t('details').toUpperCase()}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+export function SelectionScreen({ navigation }: any) {
   const { stack, pushToStack, clearStack } = useContext(StackContext);
   const { pair, setPair } = useContext(PairContext);
   const { vector, setVector, clearVector } = useContext(VectorContext);
@@ -852,22 +1244,16 @@ function SelectionScreen({ navigation }: any) {
   const actorIds = (selectedActors || []).map((a: any) => a.id);
   const directorIds = (selectedDirectors || []).map((d: any) => d.id);
 
-  const { isPanelOpen, closePanel } = useContext(FilterUIContext);
+  const { isPanelOpen, openPanel, closePanel } = useContext(FilterUIContext);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
   const [isEmpty, setIsEmpty] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const scrollRef = useRef<ScrollView>(null);
 
-  // Fires title search from the main screen. Submit-based (not live): on a
-  // non-empty trimmed query, hands off to the dedicated results screen in movie
-  // mode (the default); the results screen lets the user switch endpoints/refine.
-  const handleSearchSubmit = () => {
-    const q = searchQuery.trim();
-    if (!q) return;
-    navigation.navigate('SearchResults', { query: q, mode: 'movie' });
-  };
+  // Map the raw batch into the display shape the reel (and stack/lineup) expect.
+  // Memoized on `pair` so the reel only resets when a genuinely new batch lands.
+  // Declared with the other hooks (above the early returns) to keep hook order stable.
+  const reelMovies = useMemo(() => toReelMovies(pair), [pair]);
 
   const requestMoviePair = (
     currentGenres = selectedGenres,
@@ -877,56 +1263,54 @@ function SelectionScreen({ navigation }: any) {
     currentVector = vector,
     currentIds = stack.map((s: any) => s.id)
   ) => {
-    console.log("Requesting pair with filters:", { currentGenres, currentMin, currentMax, freshSelection, currentVector, currentIds });
     const genreIds = (currentGenres ?? [])
       .map((name: string) => genres.find((g: any) => g?.name?.toLowerCase() === name.toLowerCase())?.id)
       .filter((id: any) => id !== undefined && id !== null) as number[];
+    // Endpoint split is dictated by the backend: twelve_options REQUIRES a vector
+    // (an empty one 400s with {"vector":["This list may not be empty."]}), so the
+    // cold-start / Start Over / Apply Filters batch — which has no vector yet —
+    // must come from start_movies. Once the user has picked at least once we have
+    // a 43-dim vector and switch to the fuller twelve_options reel, carrying the
+    // already-seen ids so the next batch excludes them.
     freshSelection
       ? requestFirstPair(genreIds, currentMin, currentMax)
-      : requestMoviePostPair(genreIds, currentMin, currentMax, currentVector, currentIds);
+      : requestMovieBatch(genreIds, currentMin, currentMax, currentVector, currentIds);
   }
 
+  // Cold-start batch from GET /movies/start_movies/ — the only endpoint that
+  // works without a vector. Returns a small array (≈2) that seeds the reel until
+  // the first pick produces a vector.
   const requestFirstPair = (
     genreIds: number[],
     currentMin = minYear,
     currentMax = maxYear,
   ) => {
-    console.log("Requesting GET pair with filters:", { genreIds, currentMin, currentMax });
-    let url = `${localTest}/movies/start_movies/`;
-    const params = [];
+    const isMinValid = currentMin && currentMin.length === 4 && Number(currentMin) >= 1900 && Number(currentMin) <= MAX_YEAR;
+    const isMaxValid = currentMax && currentMax.length === 4 && Number(currentMax) >= 1900 && Number(currentMax) <= MAX_YEAR;
+    const minY = isMinValid ? currentMin : MIN_YEAR.toString();
+    const maxY = isMaxValid ? currentMax : MAX_YEAR.toString();
 
-    let isMinValid = currentMin && currentMin.length === 4 && Number.isInteger(Number(currentMin)) && Number(currentMin) >= 1900 && Number(currentMin) <= MAX_YEAR;
-    let isMaxValid = currentMax && currentMax.length === 4 && Number.isInteger(Number(currentMax)) && Number(currentMax) >= 1900 && Number(currentMax) <= MAX_YEAR;
-    currentMax = isMaxValid ? currentMax : MAX_YEAR.toString();
-    currentMin = isMinValid ? currentMin : MIN_YEAR.toString();
+    const params = [
+      `genres=${encodeURIComponent('[' + genreIds.join(',') + ']')}`,
+      `adult=0`,
+      `min_year=${encodeURIComponent(minY)}`,
+      `max_year=${encodeURIComponent(maxY)}`,
+      `country_code=${encodeURIComponent(countryCode)}`,
+      // start_movies does not accept original_language; it is POST-body only.
+      `providers=${encodeURIComponent('[' + (selectedProviders || []).join(',') + ']')}`,
+      `actors=${encodeURIComponent('[' + actorIds.join(',') + ']')}`,
+      `directors=${encodeURIComponent('[' + directorIds.join(',') + ']')}`,
+    ];
+    const url = `${localTest}/movies/start_movies/?${params.join('&')}`;
 
-    params.push(`genres=${encodeURIComponent('[' + genreIds.join(',') + ']')}`);
-    params.push(`adult=0`);
-    (currentMin) ? params.push(`min_year=${encodeURIComponent(currentMin)}`) : params.push(`min_year=${MIN_YEAR}`);
-    (currentMax) ? params.push(`max_year=${encodeURIComponent(currentMax)}`) : params.push(`max_year=${MAX_YEAR}`);
-    params.push(`country_code=${encodeURIComponent(countryCode)}`);
-    // Story 3 side-panel filters. Per the API spec start_movies does NOT accept
-    // original_language, so it is intentionally omitted here (applied on the POST
-    // body only — see requestMoviePostPair).
-    params.push(`providers=${encodeURIComponent('[' + (selectedProviders || []).join(',') + ']')}`);
-    params.push(`actors=${encodeURIComponent('[' + actorIds.join(',') + ']')}`);
-    params.push(`directors=${encodeURIComponent('[' + directorIds.join(',') + ']')}`);
-
-    if (params.length > 0) {
-      url += '?' + params.join('&');
-    }
     setIsError(false);
     setIsEmpty(false);
     setIsLoading(true);
-    fetch(url, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
-    })
+    fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
       .then(response => response.json())
       .then(json => {
-        console.log('Got pair:', json)
         setPair(json);
-        setIsEmpty(!Array.isArray(json) || json.length < 2);
+        setIsEmpty(!Array.isArray(json) || json.length < 1);
         setIsLoading(false);
       })
       .catch(error => {
@@ -936,31 +1320,31 @@ function SelectionScreen({ navigation }: any) {
       });
   }
 
-  const requestMoviePostPair = (
+  // Fetches up to 12 movies for the reel from POST /movies/twelve_options/. Body
+  // mirrors the old two_options payload; the vector is only sent when it is a
+  // full 43-dim vector, else []. isEmpty trips when fewer than one movie comes
+  // back (the reel shows a single movie at a time, so one is enough).
+  const requestMovieBatch = (
     genreIds: number[],
     currentMin = minYear,
     currentMax = maxYear,
     currentVector = vector,
     currentIds = stack.map((s: any) => s.id)
   ) => {
-    console.log("Requesting POST pair with filters:", { genreIds, currentMin, currentMax, currentVector, currentIds });
-    let url = `${localTest}/movies/two_options/`;
+    let url = `${localTest}/movies/twelve_options/`;
     let body = {
-      vector: currentVector.length === 43 ? currentVector : [], // Uses computed vector
+      vector: currentVector.length === 43 ? currentVector : [],
       min_year: currentMin && currentMin.length === 4 ? parseInt(currentMin) : MIN_YEAR,
       max_year: currentMax && currentMax.length === 4 ? parseInt(currentMax) : MAX_YEAR,
       genres: genreIds,
       adult: 0,
       ids: currentIds.filter(Boolean),
       country_code: countryCode,
-      // Story 3 side-panel filters. original_language is POST-only (start_movies
-      // GET does not accept it per the API spec).
       original_language: (selectedLanguages || []) as string[],
       providers: (selectedProviders || []) as number[],
       actors: actorIds as number[],
       directors: directorIds as number[],
     };
-    console.log("two_options payload:", JSON.stringify(body));
 
     setIsError(false);
     setIsEmpty(false);
@@ -974,7 +1358,7 @@ function SelectionScreen({ navigation }: any) {
       .then(response => response.json())
       .then(json => {
         setPair(json);
-        setIsEmpty(!Array.isArray(json) || json.length < 2);
+        setIsEmpty(!Array.isArray(json) || json.length < 1);
         setIsLoading(false);
       })
       .catch(error => {
@@ -1041,8 +1425,9 @@ function SelectionScreen({ navigation }: any) {
     setPendingResetRequest(true);
   };
 
+  // No on-screen scroll anymore — "Adjust Filters" just opens the filter panel.
   const handleAdjustFilters = () => {
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
+    openPanel();
   };
 
   // Side-panel "Apply": closes the drawer and immediately fetches a fresh pair
@@ -1077,14 +1462,17 @@ function SelectionScreen({ navigation }: any) {
 
     const newIds = [...stack.map((s: any) => s.id), chosenMovie.id];
 
-    // Pass newVector directly to API so we don't wait for React state to update
+    // Pass newVector directly to API so we don't wait for React state to update.
+    // We stay on the reel — picking just refreshes it with the next batch.
     requestMoviePair(selectedGenres, minYear, maxYear, false, newVector, newIds);
-    navigation.navigate('Pick a movie');
   };
 
+  // Reel Details button → full Details screen. The reel passes the already
+  // display-shaped movie (mapRawMovieForDetails output), which DetailsScreen
+  // consumes directly.
   const handleDetails = (movie: any) => {
-    const { selectionHandler, detailsHandler, ...movieToPass } = movie;
-    navigation.navigate('Details', { movie: movieToPass });
+    if (!movie) return;
+    navigation.navigate('Details', { movie });
   };
 
   if (isError) {
@@ -1114,26 +1502,15 @@ function SelectionScreen({ navigation }: any) {
     );
   }
 
-  const showEmpty = isEmpty || (pair?.length ?? 0) < 2;
+  const showEmpty = isEmpty || (pair?.length ?? 0) < 1;
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} style={{ width: '100%' }}>
-        <View style={styles.searchBoxContainer}>
-          <TextInput
-            style={styles.panelInput}
-            placeholder={t('search_placeholder')}
-            placeholderTextColor={COLORS.borderDark}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmitEditing={handleSearchSubmit}
-            returnKeyType="search"
-            autoCorrect={false}
-          />
-        </View>
+      <FilterMenu visible={isPanelOpen} onClose={closePanel} onApply={handleApplyFilters} />
 
-        <FilterMenu visible={isPanelOpen} onClose={closePanel} onApply={handleApplyFilters} />
-
+      {/* Single screen, no vertical scroll: the reel fills the space between the
+          header and the pinned Start Over button. */}
+      <View style={styles.selectionBody}>
         {showEmpty ? (
           <View style={styles.emptyState}>
             <MarqueeHeader text={t('empty_title')} variant="blue" />
@@ -1144,47 +1521,13 @@ function SelectionScreen({ navigation }: any) {
             <CinemaButton title={t('adjust_filters')} type="secondary" onPress={handleAdjustFilters} />
           </View>
         ) : (
-        <>
-        <Text style={styles.subText}>{t('select_best_movie')}</Text>
-
-        <View style={styles.movieContainer}>
-          <MovieCard movieData={{
-            name: pair[0]?.title || t('option_a'),
-            image: pair[0]?.image_url,
-            actor: pair[0]?.actors ? String(pair[0].actors).replace(/[\[\]']/g, '') : "Unknown",
-            director: pair[0]?.director || "Unknown",
-            overview: pair[0]?.overview,
-            year: pair[0]?.release_date ? String(pair[0].release_date).slice(0, 4) : undefined,
-            genres: Array.isArray(pair[0]?.genres) ? pair[0].genres.map((g: any) => g.name).filter(Boolean) : [],
-            vector: pair[0]?.vector,
-            id: pair[0]?.id,
-            score: pair[0]?.vote_average,
-            selectionHandler: handleSelection,
-            detailsHandler: handleDetails
-          }} />
-          <MovieCard movieData={{
-            name: pair[1]?.title || t('option_b'),
-            image: pair[1]?.image_url,
-            actor: pair[1]?.actors ? String(pair[1].actors).replace(/[\[\]']/g, '') : "Unknown",
-            director: pair[1]?.director || "Unknown",
-            overview: pair[1]?.overview,
-            year: pair[1]?.release_date ? String(pair[1].release_date).slice(0, 4) : undefined,
-            genres: Array.isArray(pair[1]?.genres) ? pair[1].genres.map((g: any) => g.name).filter(Boolean) : [],
-            vector: pair[1]?.vector,
-            id: pair[1]?.id,
-            score: pair[1]?.vote_average,
-            selectionHandler: handleSelection,
-            detailsHandler: handleDetails
-          }} />
-        </View>
-        </>
+          <MovieReel movies={reelMovies} onSelect={handleSelection} onDetails={handleDetails} />
         )}
-        <View style={styles.spacer} />
-        <CinemaButton
-          title={t('start_over')}
-          onPress={handleRequestNewMovies}
-        />
-      </ScrollView>
+      </View>
+
+      <View style={styles.selectionFooter}>
+        <CinemaButton title={t('start_over')} onPress={handleRequestNewMovies} />
+      </View>
     </SafeAreaView>
   );
 }
@@ -1200,6 +1543,14 @@ function DetailsScreen({ route, navigation }: any) {
   } = useContext(FiltersContext);
   const { t } = useTranslation();
   const { movie } = route.params || {};
+
+  // Tapping a credited person opens the Search screen pre-filled with that name
+  // in the matching mode; SearchResultsScreen auto-runs the fetch from its
+  // query/mode params, so the results are already on screen.
+  const openPersonSearch = (name: string, mode: 'actor' | 'director') => {
+    if (!name) return;
+    navigation.navigate('SearchResults', { query: name, mode });
+  };
 
   const handleStartOver = () => {
     clearStack();
@@ -1245,14 +1596,18 @@ function DetailsScreen({ route, navigation }: any) {
             <TrailerPlayer url={movie.trailer_path} />
 
             <View style={{ width: '90%', marginVertical: 15, backgroundColor: COLORS.cardBg, padding: 18, borderRadius: 8, borderWidth: 1, borderColor: COLORS.blue }}>
-              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
-                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_director')}</Text>
-                {movie.director || t('unknown')}
-              </Text>
-              <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
-                <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_starring')}</Text>
-                {movie.actor || t('unknown')}
-              </Text>
+              <PeopleLinks
+                label={t('label_director')}
+                value={movie.director}
+                mode="director"
+                onPressPerson={openPersonSearch}
+              />
+              <PeopleLinks
+                label={t('label_starring')}
+                value={movie.actor}
+                mode="actor"
+                onPressPerson={openPersonSearch}
+              />
               <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
                 <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{t('label_year')}</Text>
                 {movie.year || t('unknown')}
@@ -1352,7 +1707,7 @@ function RecommendationsScreen({ navigation }: any) {
       .map((name: string) => genres.find((g: any) => g?.name?.toLowerCase() === name.toLowerCase())?.id)
       .filter((id: any) => id !== undefined && id !== null) as number[];
 
-    // Body mirrors requestMoviePostPair's two_options payload verbatim.
+    // Body mirrors the selection reel's twelve_options payload verbatim.
     const body = {
       vector: vector.length === 43 ? vector : [],
       min_year: minYear && minYear.length === 4 ? parseInt(minYear) : MIN_YEAR,
@@ -1509,6 +1864,49 @@ function RecommendationsScreen({ navigation }: any) {
 // Maps a raw movie object (from searchMovie or the POST /movies/details/ lookup)
 // to the MovieCard-mapped shape DetailsScreen expects — same mapping
 // SelectionScreen/RecommendationsScreen use before navigation.push('Details').
+// Turns the comma-joined people string that mapRawMovieForDetails produces
+// (e.g. "Tom Hanks, Tim Allen" from the Python-stringified `actors` list, or a
+// lone `director`) back into individual trimmed names. Drops blanks and the
+// 'Unknown' placeholder so they never render as a tappable search link.
+export function splitPeople(value: any): string[] {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map(s => s.trim())
+    .filter(s => s && s.toLowerCase() !== 'unknown');
+}
+
+// A Details credit line ("Director:" / "Starring:") whose people render as
+// inline, tappable links into the Search screen. Each name calls
+// onPressPerson(name, mode) so the caller can navigate to SearchResults with
+// the matching mode (actor / director). Falls back to the localized "unknown"
+// label (non-tappable) when there are no real names.
+export function PeopleLinks({ label, value, mode, onPressPerson }: any) {
+  const { t } = useTranslation();
+  const names = splitPeople(value);
+  return (
+    <Text style={{ fontFamily: 'Limelight-Regular', color: COLORS.textLight, fontSize: 16, marginBottom: 8 }}>
+      <Text style={{ fontWeight: 'bold', color: COLORS.gold }}>{label}</Text>
+      {names.length === 0 ? (
+        <Text>{t('unknown')}</Text>
+      ) : (
+        names.map((name, i) => (
+          <React.Fragment key={`${mode}-${name}-${i}`}>
+            {i > 0 ? <Text>, </Text> : null}
+            <Text
+              testID={`person-link-${mode}-${i}`}
+              style={{ color: COLORS.blue, textDecorationLine: 'underline' }}
+              onPress={() => onPressPerson(name, mode)}
+            >
+              {name}
+            </Text>
+          </React.Fragment>
+        ))
+      )}
+    </Text>
+  );
+}
+
 function mapRawMovieForDetails(m: any) {
   return {
     name: m?.title,
@@ -1873,7 +2271,12 @@ function App(): React.JSX.Element {
                         // Filters live only on the selection screen. The FilterTrigger
                         // sits on the LEFT of the centered title (no back button on the
                         // initial route, so headerLeft is free)...
-                        headerLeft: () => <FilterTrigger />,
+                        headerLeft: () => (
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <FilterTrigger />
+                            <SearchTrigger />
+                          </View>
+                        ),
                         // ...and headerRight (where the FilterTrigger used to be) now
                         // holds the Recommendations shortcut to the left of the
                         // language control.
@@ -1904,21 +2307,6 @@ function App(): React.JSX.Element {
 }
 
 // --- THEME COLORS ---
-const COLORS = {
-  background: '#13002B', // Space purple
-  primaryRed: '#E11D48', // Vibrant red
-  gold: '#FACC15',       // Highlight yellow/gold
-  textLight: '#F8FAFC',
-  cardBg: '#1F0B3B',     // Dark purple
-  blue: '#0EA5E9',       // Action blue
-  darkBlue: '#0A192F',   // Deep blue
-  borderDark: '#5B21B6', // Dark purple border
-  marqueeBoard: '#F4EFE2',  // Off-white marquee letterboard
-  marqueeRail: '#B8B0A0',   // Grey horizontal letter rails
-  marqueeFrame: '#1A1A1A',  // Dark marquee frame
-  marqueeInk: '#0B0B0B',    // Black marquee letters
-};
-
 const MyTheme = {
   ...DefaultTheme,
   colors: {
@@ -1947,53 +2335,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  trailerSection: {
-    width: '90%',
-    alignItems: 'center',
-    marginTop: 15,
-  },
-  trailerHeading: {
-    fontFamily: 'Oswald-Bold',
-    fontSize: 16,
-    color: COLORS.gold,
-    letterSpacing: 2,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-  },
-  trailerFrame: {
-    width: '100%',
-    maxWidth: 380,
-    aspectRatio: 16 / 9,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.blue,
-    backgroundColor: COLORS.darkBlue,
-    overflow: 'hidden',
-  },
-  trailerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'stretch',
-    maxWidth: 380,
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.primaryRed,
-    backgroundColor: COLORS.cardBg,
-  },
-  trailerPlayGlyph: {
-    color: COLORS.primaryRed,
-    fontSize: 18,
-    marginRight: 10,
-  },
-  trailerButtonText: {
-    fontFamily: 'Oswald-Bold',
-    fontSize: 15,
-    color: COLORS.textLight,
-    letterSpacing: 1,
   },
   splashIcon: {
     width: 220,
@@ -2086,6 +2427,117 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-start',
     backgroundColor: COLORS.background,
+  },
+  // --- SPOTLIGHT REEL ---
+  // Single-screen selection layout: body fills the space, footer is pinned.
+  selectionBody: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionFooter: {
+    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  reelWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  reelTitle: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 26,
+    color: COLORS.gold,
+    textAlign: 'center',
+    letterSpacing: 1,
+    paddingHorizontal: 16,
+    minHeight: 36,
+    marginBottom: 10,
+  },
+  reelStage: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  // Vertical triangular spotlight beam (apex at top, widening down). The three
+  // border widths are set inline from the item size; here we just colour it: the
+  // bottom border is the beam, the side borders are transparent.
+  reelSpotlight: {
+    position: 'absolute',
+    top: -12,
+    alignSelf: 'center',
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: COLORS.gold,
+  },
+  reelItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  reelPoster: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: COLORS.cardBg,
+    borderRadius: 8,
+    padding: 4,
+  },
+  reelDetailWrap: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 14,
+    paddingHorizontal: 20,
+  },
+  reelDetailsBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 26,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+    backgroundColor: COLORS.cardBg,
+  },
+  reelDetailsText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 15,
+    color: COLORS.textLight,
+    letterSpacing: 1,
+  },
+  reelSynopsis: {
+    fontFamily: 'Limelight-Regular',
+    color: COLORS.textLight,
+    fontSize: 15,
+    lineHeight: 24,
+    textAlign: 'center',
+  },
+  reelTrailer: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.background + 'F2',
+    paddingHorizontal: 12,
+  },
+  reelTrailerClose: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.primaryRed,
+    backgroundColor: COLORS.cardBg,
+  },
+  reelTrailerCloseText: {
+    fontFamily: 'Oswald-Bold',
+    fontSize: 14,
+    color: COLORS.gold,
+    letterSpacing: 1,
   },
   text: {
     fontFamily: 'Oswald-Bold',
@@ -2420,15 +2872,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'flex-start',
+    justifyContent: 'center',
     paddingVertical: 4,
   },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.gold,
     margin: 4,
+  },
+  chipIcon: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  chipIconFallback: {
+    fontSize: 15,
+    marginRight: 6,
   },
   chipUnselected: {
     backgroundColor: 'transparent',
@@ -2555,7 +3020,7 @@ const styles = StyleSheet.create({
   filterMenuCard: {
     width: '100%',
     maxWidth: 420,
-    maxHeight: '80%',
+    maxHeight: '90%',
     alignSelf: 'center',
     marginTop: 48,
     marginBottom: 'auto',
@@ -2593,7 +3058,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   panelBody: {
-    flex: 1,
+    // NOT flex:1 — see PANEL_BODY_MAX_HEIGHT. A definite maxHeight lets the body
+    // size to its content and scroll only when the categories overflow.
+    maxHeight: PANEL_BODY_MAX_HEIGHT,
   },
   panelBodyContent: {
     padding: 16,

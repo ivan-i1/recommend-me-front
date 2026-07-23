@@ -20,6 +20,7 @@
   "loading_subtitle": "Empalmando la película...",
 
   "filter_genre": "Género",
+  "filter_year": "Año",
   "filter_min_year": "Año mín.",
   "filter_max_year": "Año máx.",
   "filter_all": "Todos",

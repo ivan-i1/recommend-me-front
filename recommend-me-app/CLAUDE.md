@@ -28,9 +28,21 @@ There is no build/typecheck npm script; `tsc --noEmit` can be run ad hoc.
 
 ## Architecture
 
-**The entire app is `App.tsx`** (~45 KB, one file). `src/` contains only the i18n module.
-Don't go looking for a components/ or screens/ tree — it doesn't exist. Theme colors
-(`COLORS`) and `StyleSheet` live at the bottom of `App.tsx`.
+**Almost the entire app is `App.tsx`** (one big file). Don't go looking for a full
+components/ or screens/ tree — it doesn't exist. The main `StyleSheet` lives at the bottom
+of `App.tsx`. `src/` holds the small shared/extracted modules: `i18n` (localization),
+`theme.ts` (the `COLORS` palette — imported by `App.tsx`), `youtube.ts`
+(`extractYouTubeId`), and `TrailerPlayer` (see below).
+
+**Platform-split modules (`.web.tsx` / `.tsx`):** when a component needs a native-only
+dependency, split it so the native dep never reaches the web bundle. `TrailerPlayer` is the
+pattern: `src/TrailerPlayer.tsx` (native — inline YouTube via
+`react-native-youtube-iframe` + `react-native-webview`) and `src/TrailerPlayer.web.tsx`
+(web — a plain `<iframe>` embed). Webpack resolves `.web.tsx` first; Metro resolves `.tsx`.
+Anything shared between the two variants (e.g. `extractYouTubeId`, `COLORS`) must live in a
+third, dependency-free module (`src/youtube.ts`, `src/theme.ts`) so the web variant never
+transitively imports the native one. In jest, `react-native-youtube-iframe` is auto-mocked
+via `__mocks__/` so the real webview never loads.
 
 ### State & data flow
 

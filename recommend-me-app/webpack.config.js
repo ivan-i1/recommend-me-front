@@ -19,8 +19,10 @@ module.exports = {
     rules: [
       {
         test: /\.(js|jsx|ts|tsx)$/,
-        // We exclude node_modules EXCEPT for the ones that specifically need to be compiled for web
-        exclude: /node_modules\/(?!(@react-navigation|react-native-safe-area-context|react-native-screens)\/).*/,
+        // We exclude node_modules EXCEPT for the ones that ship untranspiled
+        // JSX/ESM and so need to be compiled for web (react-native-shadow-2 and
+        // its react-native-svg dependency among them).
+        exclude: /node_modules\/(?!(@react-navigation|react-native-safe-area-context|react-native-screens|react-native-shadow-2|react-native-svg)\/).*/,
         type: 'javascript/auto',
         use: {
           loader: 'babel-loader',
