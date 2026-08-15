@@ -1,12 +1,15 @@
 {
   "compilerOptions": {
     "target": "esnext",
-    "module": "commonjs",
+    // No "module" override here: @react-native/typescript-config sets
+    // "moduleResolution": "bundler", which TS only accepts with an esnext-or-later
+    // module, so pinning commonjs made every `tsc --noEmit` run exit 2 on TS5095.
     "jsx": "react-native",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["jest"],
+    // "node" is needed for `global` in the tests that swap out fetch.
+    "types": ["jest", "node"],
   },
   "extends": "@react-native/typescript-config",
   "include": ["**/*.ts", "**/*.tsx"],

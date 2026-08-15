@@ -1,0 +1,46 @@
+# Bingepick web target + JS gates. See README.md -> "Running with Docker".
+#
+#   docker compose up web          the app on http://localhost:3005
+#   docker compose run --rm test   jest
+#   docker compose run --rm tsc    tsc --noEmit
+#
+# test/tsc sit behind the "tools" profile so a bare `docker compose up` starts
+# the app and nothing else; `docker compose run` activates their profile itself.
+
+x-app: &app
+  build:
+    context: .
+    target: dev
+  image: bingepick-web:dev
+  volumes:
+    - .:/app
+    # Anonymous volume, deliberately: it keeps the image's Linux-built
+    # node_modules visible under the bind mount above, which would otherwise
+    # shadow them with the host's macOS-built tree. Rebuilding after a
+    # package.json change therefore needs `docker compose down -v` first.
+    - /app/node_modules
+
+services:
+  web:
+    <<: *app
+    ports:
+      - "${WEB_PORT:-3005}:3005"
+    environment:
+      # Defaults to the host the app has always used. Override to follow the
+      # backend if it moves again (it has once already: :8000 -> :80).
+      BACKEND_URL: ${BACKEND_URL:-http://188.166.155.92}
+      # Bind mounts routinely drop the inotify events webpack watches for, so
+      # poll instead. Set WATCH_POLL=0 to turn polling off.
+      WATCH_POLL: ${WATCH_POLL:-1000}
+    stdin_open: true
+    tty: true
+
+  test:
+    <<: *app
+    profiles: ["tools"]
+    command: npx jest
+
+  tsc:
+    <<: *app
+    profiles: ["tools"]
+    command: npx tsc --noEmit

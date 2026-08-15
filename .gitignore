@@ -220,3 +220,6 @@ __marimo__/
 !recommend-me-app/android/app/src/main/res/**/*.png
 !recommend-me-app/ios/**/*.png
 
+
+# Claude Code session state (durable STATUS.md / INDEX.md). On-disk only, never committed.
+claude/
