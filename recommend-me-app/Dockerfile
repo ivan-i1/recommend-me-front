@@ -4,13 +4,14 @@
 # containerised so the app can be run and verified with nothing installed
 # locally but Docker.
 #
-# SCOPE: web only. Android needs the SDK/NDK/Gradle toolchain, and iOS cannot be
-# containerised at all -- there is no Darwin container runtime and Xcode is
-# macOS-only. README.md carries the native macOS setup for both.
+# SCOPE: web + Android. iOS cannot be containerised at all -- there is no Darwin
+# container runtime and Xcode is macOS-only. README.md carries the native macOS
+# setup for it.
 #
 #   docker compose up web        -> http://localhost:3005
 #   docker compose run --rm test -> jest
 #   docker compose run --rm tsc  -> tsc --noEmit
+#   docker compose run --rm apk  -> android/app/build/outputs/apk/...
 
 
 # ---------------------------------------------------------------------------
@@ -60,3 +61,50 @@ CMD ["npx", "webpack", "serve", \
      "--config", "webpack.config.js", \
      "--host", "0.0.0.0", \
      "--port", "3005"]
+
+
+# ---------------------------------------------------------------------------
+# android: builds an APK. Carries the JDK, Node and the SDK command-line tools;
+# the SDK platform, build-tools and NDK are installed at run time into a named
+# volume by docker/android-build.sh -- see that script for why they are not
+# baked in here.
+# ---------------------------------------------------------------------------
+FROM node:22-slim AS android
+
+# JDK 17: android/app/build.gradle pins sourceCompatibility 17 and a Kotlin
+# jvmToolchain(17), so a newer JDK is not a drop-in substitute.
+# git is here because the React Native Gradle plugin shells out to it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      openjdk-17-jdk-headless \
+      unzip \
+      curl \
+      ca-certificates \
+      git \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
+    ANDROID_HOME=/opt/android-sdk \
+    CMDLINE_TOOLS=/opt/cmdline-tools \
+    GRADLE_USER_HOME=/root/.gradle
+
+# The command-line tools are small (~150MB) and change rarely, so unlike the rest
+# of the SDK they are worth baking into a cached layer.
+ARG CMDLINE_TOOLS_VERSION=13114758
+RUN curl -fsSL -o /tmp/tools.zip \
+      "https://dl.google.com/android/repository/commandlinetools-linux-${CMDLINE_TOOLS_VERSION}_latest.zip" \
+    && mkdir -p /opt \
+    && unzip -q /tmp/tools.zip -d /opt \
+    && rm /tmp/tools.zip \
+    && test -x /opt/cmdline-tools/bin/sdkmanager
+
+ENV PATH="${CMDLINE_TOOLS}/bin:${ANDROID_HOME}/platform-tools:${PATH}"
+
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Invoked through bash rather than executed directly: the compose service bind
+# mounts the host checkout over /app, so it is the HOST file that runs and any
+# `chmod +x` applied here is invisible at run time. This way the exec bit is
+# irrelevant. (It is also set in git, but that is the belt, and this is braces.)
+ENTRYPOINT ["bash", "/app/docker/android-build.sh"]

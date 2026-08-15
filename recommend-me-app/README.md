@@ -10,7 +10,8 @@ There are two ways to run it, and they cover different ground:
 |---|---|---|
 | Web app in a browser | ✅ | ✅ |
 | `npm test` / `tsc` | ✅ | ✅ |
-| Android build (`.apk`) | ❌ | ✅ |
+| Android build (`.apk`) | ✅ | ✅ |
+| Android emulator | ❌ | ✅ |
 | iOS build / Simulator | ❌ — see below | ✅ (macOS only) |
 | Setup effort | Docker only | Xcode + JDK + SDKs + Ruby |
 
@@ -19,6 +20,10 @@ macOS-only and licensed against it. Docker on a Mac runs a Linux VM, so an iOS b
 impossible inside it regardless of configuration. If you need the iOS app, use the
 [native macOS setup](#native-macos-setup) below; if you only need to *see and use* the app,
 the Docker web target is the fastest route on any host.
+
+Android is different: the container **builds** an APK, it just cannot **run** one. Emulators need
+KVM, which Docker Desktop on macOS does not expose, so install the APK on a real device or on an
+emulator running on your host.
 
 ---
 
@@ -31,40 +36,94 @@ from this directory — `recommend-me-app/`, not the repository root.
 docker compose up web              # http://localhost:3005
 docker compose run --rm test       # jest
 docker compose run --rm tsc        # tsc --noEmit
+docker compose run --rm apk        # Android APK
 ```
 
-First build takes a couple of minutes (one `npm ci` on Linux); afterwards it is cached. Source is
-bind-mounted, so edits on the host hot-reload in the browser without a rebuild.
+First web build takes a couple of minutes (one `npm ci` on Linux); afterwards it is cached. Source
+is bind-mounted, so edits on the host hot-reload in the browser without a rebuild. The APK build is
+much heavier — see [Building the APK](#building-the-apk).
 
 ### Configuration
 
-Both are plain environment variables — set them in the shell, or in a `.env` file beside this
-README (which is gitignored and excluded from the image).
+All plain environment variables — set them in the shell, or in a `.env` file beside this README
+(which is gitignored and excluded from the image).
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `BACKEND_URL` | `http://188.166.155.92` | Where the dev server proxies `/details` and `/movies`. The API host has moved once already (`:8000` → `:80`), so it is not baked into the image. |
 | `WEB_PORT` | `3005` | Host port to publish. Container-side stays 3005. |
 | `WATCH_POLL` | `1000` (ms) | Bind mounts routinely drop the inotify events Webpack watches for, so the container polls instead. `0` disables polling. |
+| `ANDROID_VARIANT` | `Release` | `Release` or `Debug`. |
+| `ANDROID_ABIS` | `arm64-v8a,x86_64` | Which native ABIs to compile. The single biggest build-time knob. |
+| `ANDROID_NDK_VERSION` | `27.1.12297006` | Set to empty to skip the ~2.5 GB NDK install. |
 
 ```sh
 BACKEND_URL=http://10.0.0.5:8000 docker compose up web
+ANDROID_ABIS=arm64-v8a docker compose run --rm apk
 ```
 
 Outside Docker these are unset, and the config falls back to exactly the values it always had —
 `npm run web` on a host machine is unaffected by any of this.
 
+### Building the APK
+
+```sh
+docker compose run --rm --build apk
+# -> dist-apk/app-release.apk
+```
+
+**`--build` matters.** Unlike the other services, this one does **not** bind-mount your checkout,
+so it builds whatever source is in the image — `--build` refreshes that. The reason is that your
+`android/build` holds a Gradle autolinking cache recording absolute macOS paths; mounted into
+Linux it makes the build fail configuring `:react-native-svg` against a directory that doesn't
+exist there. Building from the image sidesteps it entirely and leaves your host's Android build
+state alone. The finished APK is copied to `dist-apk/` (gitignored), which is the one directory
+mounted back to the host.
+
+**Budget for it.** Measured on an Intel Mac, two ABIs, Docker Desktop:
+
+| | Time | Gradle tasks |
+|---|---|---|
+| First run (downloads SDK + NDK, full compile) | ~12 min | 245 executed |
+| Later runs | ~5 min | 172 executed, 73 up-to-date |
+
+Expect several GB of disk. Later runs are quicker mostly because the SDK, NDK and Gradle
+distribution are already in volumes — the build is only **partially** incremental, since the React
+Native codegen and native-compile tasks re-run each time. `ANDROID_ABIS=arm64-v8a` cuts the native
+compile substantially if you only need real devices.
+
+**Release needs a keystore.** `android/app/build.gradle` signs release builds with
+`android/app/release.keystore`, which is **not** in git — only `debug.keystore` is. If you cloned
+fresh you will not have it, and the build stops with a message saying so. Either supply the
+keystore or build `ANDROID_VARIANT=Debug` — but note a debug APK contains no JS bundle and will not
+launch without Metro reachable from the device.
+
+**Docker builds the APK; it cannot run it.** Emulators need KVM, which Docker Desktop on macOS does
+not provide. Install the output on a real device (`adb install <path>`) or on an emulator running
+on your host.
+
+**Reclaiming the space.** The SDK and Gradle caches live in named volumes rather than image layers,
+precisely so you can get the disk back without rebuilding anything:
+
+```sh
+docker volume rm bingepick-android-sdk bingepick-gradle-cache \
+                 bingepick-android-dot-gradle bingepick-android-build \
+                 bingepick-android-app-build
+```
+
 ### Notes and limits
 
-- **`test` and `tsc` sit behind a `tools` profile**, so a bare `docker compose up` starts the app
-  and nothing else. `docker compose run` activates the profile by itself.
+- **Everything but `web` sits behind a profile** (`tools` for test/tsc, `android` for apk), so a
+  bare `docker compose up` starts the app and nothing else. `docker compose run` activates the
+  profile by itself.
 - **Dependencies live in an anonymous volume.** The bind mount would otherwise cover the image's
   Linux-built `node_modules` with the host's (macOS-built) tree. The cost is that after changing
   `package.json` you must clear it: `docker compose down -v && docker compose build`.
 - **Files the container writes into the bind mount are owned by root on Linux hosts.** Docker
   Desktop on macOS remaps ownership, so this only bites on Linux.
-- The image covers the web target only. Native sources are kept in the build context so an
-  Android stage could be added later, but no such stage exists today.
+- **The `apk` service does not bind-mount the checkout**, unlike the others — see
+  [Building the APK](#building-the-apk). Your `npm run android`, your `android/build` and your
+  `android/local.properties` are all untouched by it.
 
 ---
 

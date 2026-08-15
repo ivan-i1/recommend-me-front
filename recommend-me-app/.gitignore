@@ -79,3 +79,6 @@ yarn-error.log
 
 # Watchman cookie files
 .watchman-cookie-*
+
+# APKs copied out of the Android build container
+dist-apk/

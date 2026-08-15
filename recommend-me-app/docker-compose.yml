@@ -3,9 +3,11 @@
 #   docker compose up web          the app on http://localhost:3005
 #   docker compose run --rm test   jest
 #   docker compose run --rm tsc    tsc --noEmit
+#   docker compose run --rm apk    an Android APK
 #
-# test/tsc sit behind the "tools" profile so a bare `docker compose up` starts
-# the app and nothing else; `docker compose run` activates their profile itself.
+# Everything but `web` sits behind a profile, so a bare `docker compose up`
+# starts the app and nothing else; `docker compose run` activates the profile of
+# whatever service you name.
 
 x-app: &app
   build:
@@ -44,3 +46,55 @@ services:
     <<: *app
     profiles: ["tools"]
     command: npx tsc --noEmit
+
+  # Not built from *app: it needs the JDK/SDK image and its own volume set, and
+  # a YAML merge would replace the volume list rather than extend it anyway.
+  apk:
+    build:
+      context: .
+      target: android
+    image: bingepick-android:dev
+    profiles: ["android"]
+    environment:
+      # Release produces a standalone, signed APK. Debug skips JS bundling, so a
+      # debug APK will not launch without Metro reachable from the device.
+      ANDROID_VARIANT: ${ANDROID_VARIANT:-Release}
+      # Two ABIs by default: arm64-v8a for real devices, x86_64 for emulators.
+      # Each extra ABI is a full native compile, so this is the build-time knob
+      # that matters most.
+      ANDROID_ABIS: ${ANDROID_ABIS:-arm64-v8a,x86_64}
+      # Single dash: ANDROID_NDK_VERSION= (empty) deliberately skips the ~2.5GB
+      # NDK install, rather than falling back to the default.
+      ANDROID_NDK_VERSION: ${ANDROID_NDK_VERSION-27.1.12297006}
+    volumes:
+      # NOTE: the checkout is deliberately NOT bind-mounted here, unlike every
+      # other service. The host's android/build holds an autolinking cache full
+      # of macOS absolute paths (/Users/...), and android/.gradle likewise —
+      # mounting them makes Gradle configure ':react-native-svg' against a
+      # directory that does not exist inside the container, and the build dies.
+      # Source therefore comes from the image, which .dockerignore already
+      # filters clean, so use `--build` to pick up edits.
+      - ./dist-apk:/app/dist-apk
+      - android-sdk:/opt/android-sdk
+      - gradle-cache:/root/.gradle
+      # Keep Gradle's state across runs so rebuilds stay incremental. All three
+      # matter: android/.gradle holds the task execution history that up-to-date
+      # checks read, and without it Gradle re-runs all 245 tasks every time even
+      # though the outputs in android/build are still sitting there.
+      - android-dot-gradle:/app/android/.gradle
+      - android-build:/app/android/build
+      - android-app-build:/app/android/app/build
+
+volumes:
+  # Named rather than anonymous so they are greppable and individually
+  # reclaimable: `docker volume rm bingepick-android-sdk` frees several GB.
+  android-sdk:
+    name: bingepick-android-sdk
+  gradle-cache:
+    name: bingepick-gradle-cache
+  android-dot-gradle:
+    name: bingepick-android-dot-gradle
+  android-build:
+    name: bingepick-android-build
+  android-app-build:
+    name: bingepick-android-app-build

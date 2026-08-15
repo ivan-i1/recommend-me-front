@@ -58,3 +58,6 @@ yarn-error.log*
 # Test/coverage artefacts
 coverage
 .jest-cache
+
+# Build output copied out of the Android container
+dist-apk

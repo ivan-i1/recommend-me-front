@@ -35,18 +35,43 @@ so it silently proves nothing. Use `npx tsc --noEmit` as the static gate instead
 `@react-native/typescript-config`. Removing the override fixed it, and required adding `node`
 to `types` for `global` in the tests. Any output at all is now a real failure.)
 
-### Docker (web target only)
+### Docker
 
 ```sh
 docker compose up web              # http://localhost:3005
 docker compose run --rm test       # jest
 docker compose run --rm tsc        # tsc --noEmit
+docker compose run --rm apk        # Android APK (slow first run, several GB)
 ```
 
-`Dockerfile` is a two-stage build (`deps` → `dev`) on `node:22-slim`; `test`/`tsc` are the same
-image behind a `tools` compose profile. It covers **web only** — Android needs the SDK/NDK, and
-iOS cannot be containerised at all (no Darwin containers; Xcode is macOS-only). `README.md`
-carries the native macOS setup for both.
+`Dockerfile` has three stages on `node:22-slim`: `deps` (one `npm ci`) → `dev` (web server;
+`test`/`tsc` are the same image behind a `tools` profile) and `android` (JDK 17 + SDK
+command-line tools, behind an `android` profile). **iOS cannot be containerised at all** — no
+Darwin containers, Xcode is macOS-only — so `README.md` carries the native macOS setup for it.
+
+Android specifics, all of them deliberate:
+
+- **The SDK platform/build-tools/NDK are installed at run time into named volumes**
+  (`bingepick-android-sdk`, `bingepick-gradle-cache`) by `docker/android-build.sh`, not baked
+  into image layers. They are several GB; in a layer that weight is stored twice during the build
+  and can only be reclaimed by deleting the image, whereas a volume is one `docker volume rm`.
+- **The `apk` service does NOT bind-mount the checkout**, unlike every other service. The host's
+  `android/build/generated/autolinking/autolinking.json` records absolute macOS paths, so a bind
+  mount makes Gradle configure `:react-native-svg` against
+  `/Users/.../node_modules/react-native-svg/android` — nonexistent inside Linux — and the build
+  fails at configuration time. Source comes from the image (`.dockerignore` already strips the
+  generated dirs), so **use `docker compose run --rm --build apk` to pick up source edits**.
+  Gradle's `android/build` and `android/app/build` are volumes, and the APK is copied to the
+  bind-mounted `dist-apk/` to reach the host.
+- **The SDK path comes from `$ANDROID_HOME`, never from a written `local.properties`.** Gradle
+  prefers `sdk.dir` over the env var, so the script *refuses to build* if a foreign
+  `local.properties` appears rather than rewriting it — on a bind mount that file is the host's,
+  and clobbering it would break the host's `npm run android`.
+- **The entrypoint is `["bash", "/app/docker/android-build.sh"]`, not the script directly.** The
+  bind mount replaces `/app`, so a `chmod +x` in the Dockerfile applies to a file that never runs.
+- **Release is the default variant** and needs `android/app/release.keystore`, which is untracked
+  (only `debug.keystore` is in git). The script fails early with an explanation rather than a deep
+  Gradle stack trace. A Debug APK bundles no JS and needs Metro to launch.
 
 Two env vars, both read in `webpack.config.js` and both **inert when unset**, so a host-machine
 `npm run web` behaves exactly as before: `BACKEND_URL` re-points the API proxy (default is the
